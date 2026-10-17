@@ -1,0 +1,83 @@
+# Ideal Customer Profile and offer (v2). The agents read this file.
+version: 3
+
+company:
+  name: Zypher Software Solutions LLP
+  location: Kerala, India
+  positioning: >
+    We study how a small or mid-sized business actually runs, find the manual,
+    repetitive workflows, and automate them (CRM/Slack/Notion/WhatsApp/ERP
+    integrations, AI agents, internal tools).
+  primary_service: business-process automation
+  secondary_services: [websites, mobile apps, CRM/ERP/POS/custom software]
+
+strategy:
+  model: land_and_expand
+  goal_of_outreach: book a discovery call (15-20 min) to understand their workflow
+  first_touch_rule: >
+    Pitch ONLY the workflow call. Never pitch websites or software in the
+    first email. Gaps in websites/software are found during the call and
+    proposed after the automation work is agreed.
+  discovery_call_outputs: [workflow map, time/cost waste estimate, gaps in web/software]
+
+target:
+  company_size: "10-200 employees"
+  markets: [UAE, India, Qatar, US]
+  industry_policy: >
+    Any SME in any sector. Target by PAIN, not by industry: companies that run
+    on spreadsheets, WhatsApp, email and manual data entry. The research agent
+    must find evidence of a specific workflow pain for each lead.
+    Every lead is tagged with its industry so we can measure which sectors
+    reply and book calls, then double down on those.
+  good_signals:
+    - quotes or proposals are built manually (Excel/Word/PDF)
+    - orders, leads or enquiries come through WhatsApp/email/forms with no CRM
+    - hiring for admin, operations, coordinator or data-entry roles
+    - multiple branches, salespeople or high enquiry volume
+    - outdated website, no enquiry form, booking or quote request flow
+  disqualifiers:
+    - large enterprise or listed company
+    - IT/automation/software vendor or agency
+    - no verifiable website or business email
+
+buyer_personas:
+  - owner / founder / managing director
+  - operations manager / general manager
+  - head of sales
+
+offer:
+  primary_cta: "Free discovery call (15-20 min), no commitment, to understand how your business runs today"
+  value_claims_allowed:        # qualitative only, until we have measured results
+    - saves staff time on repetitive work
+    - fewer manual errors
+    - faster response to customers
+  pricing_note: "TODO: not stated in first touch. Decide pilot vs project pricing for the call."
+
+proof_points:
+  # HONESTY RULES: Zypher has NO external paying clients yet for automation.
+  # Never imply a client base. USR is a family-owned company (founder's brother),
+  # so it is our first deployment, not an independent customer. Never hide this
+  # if asked, and never present it as an independent third-party result.
+  - id: usr_first_deployment
+    text: "Our first deployment: automations built for USR, a Dubai company"
+    relationship: "owned by the founder's brother"
+    disclose_if_asked: true
+    may_name_client: false      # TODO: confirm with USR owner before naming in emails
+    safe_wording: "a Dubai company we built it for"
+    details_needed: [what was automated, before vs after, measured time/error savings, screenshots or demo OK to share]
+    allowed_metrics: []         # add only verified, real numbers
+  - id: zypher_internal
+    text: "We run our own operations on automation, e.g. Notion CRM connected to Slack"
+    strength: supporting
+forbidden_proof:
+  - Instagram or social media marketing results (a plan, not a result)
+  - any client, number or result not listed above
+  - phrases like "our clients", "we have helped companies", "proven results" (we have one deployment)
+
+messaging_rules:
+  email_word_range: [60, 100]
+  tone: plain, human, specific, no hype
+  must_include: [one specific observation about THEIR workflow, one low-friction CTA, opt-out line]
+  never_say: ["I hope this email finds you well", "revolutionary", "game-changing", "guarantee", "boost your digital presence"]
+  never_claim: [clients, revenue, time-saved numbers or results not in proof_points]
+  hypothesis_style: "phrase as a question or likelihood, not as a fact about their business"

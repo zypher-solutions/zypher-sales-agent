@@ -1,0 +1,33 @@
+[project]
+name = "zypher-sales-agent"
+version = "0.1.0"
+description = "AI-assisted outbound sales system for Zypher Software Solutions LLP"
+requires-python = ">=3.11"
+dependencies = [
+  "anthropic>=1.15",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.7",
+  "psycopg[binary]>=3.2",
+  "httpx>=0.27",
+  "beautifulsoup4>=4.12",
+  "python-dotenv>=1.0",
+  "pyyaml>=6.0",
+  "tldextract>=5.1",
+  "email-validator>=2.2",
+]
+
+[project.scripts]
+zypher-agent = "zypher_agent.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

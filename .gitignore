@@ -1,0 +1,12 @@
+.env
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# lead data never goes into git
+*.csv
+
+# old n8n export: contains a Google Sheet ID and a personal Telegram chat ID; the sheet has lead data
+docs/legacy/

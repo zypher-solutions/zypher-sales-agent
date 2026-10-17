@@ -1,0 +1,229 @@
+"""Human approval over a chat channel (Telegram in production, the console in --dry-run).
+
+This module is pure logic: it talks to a `Notifier`, never to Telegram directly, so every
+rule below is unit-tested without a network. Approving a draft only records the decision.
+Nothing here (or anywhere in Phase 1) can send an email.
+
+Rules:
+  * Only user ids on the allowlist can do anything. Everyone else is ignored and logged.
+  * A button carries the draft's id AND version. Tapping an old card after a redraft is refused,
+    so you can never approve text you have not seen.
+  * Approve is hidden on a draft that failed the guardrails, and re-checked when pressed.
+"""
+import uuid
+from typing import Protocol
+
+from pydantic import BaseModel
+
+from zypher_agent.config import Icp
+from zypher_agent.db import Repository
+from zypher_agent.drafting.email import evidence_for, generate
+from zypher_agent.guardrails.checks import check_draft
+from zypher_agent.llm import LLM, LLMError
+from zypher_agent.models import EmailDraft, Footer, Hypothesis, Lead, Message
+
+CARD_LIMIT = 3900  # Telegram's hard limit is 4096 characters per message
+HELP = "Tap Suggest changes under a draft, then type what to change. Approve and Reject are buttons."
+
+
+class Button(BaseModel):
+    text: str
+    data: str
+
+
+class Notifier(Protocol):
+    def send(self, chat_id: int, text: str, buttons: list[Button] | None = None) -> int: ...
+    def edit(self, chat_id: int, message_id: int, text: str) -> None: ...  # replaces text, removes buttons
+    def answer(self, callback_id: str, text: str) -> None: ...
+
+
+class ConsoleNotifier:
+    """Prints instead of sending. Records everything so --dry-run and tests can inspect it."""
+
+    def __init__(self, echo: bool = True) -> None:
+        self.echo, self.sent, self.edits, self.answers = echo, [], [], []
+
+    def _say(self, label: str, text: str) -> None:
+        if self.echo:
+            print(f"\n[{label}]\n{text}")
+
+    def send(self, chat_id: int, text: str, buttons: list[Button] | None = None) -> int:
+        message_id = len(self.sent) + 1
+        self.sent.append({"id": message_id, "chat_id": chat_id, "text": text, "buttons": buttons or []})
+        shown = "   ".join(f"[{b.text}]" for b in buttons or [])
+        self._say(f"TELEGRAM → {chat_id}", text + (f"\n\n{shown}" if shown else ""))
+        return message_id
+
+    def edit(self, chat_id: int, message_id: int, text: str) -> None:
+        self.edits.append({"chat_id": chat_id, "id": message_id, "text": text})
+        self._say(f"TELEGRAM edit #{message_id}", text.splitlines()[0])
+
+    def answer(self, callback_id: str, text: str) -> None:
+        self.answers.append({"id": callback_id, "text": text})
+        self._say("TELEGRAM popup", text)
+
+
+def format_card(msg: Message, lead: Lead) -> str:
+    ev = msg.evidence
+    violations = ev["guardrails"]["violations"]
+    status = (
+        "⚠️ FAILED CHECKS (Approve is disabled):\n" + "\n".join(f"- {v['rule']}: {v['detail']}" for v in violations)
+        if violations else "✅ Passed all checks"
+    )
+    head = f"📧 Draft v{msg.version} · {lead.company_name} ({lead.domain})\nTo: {lead.contact_name or 'there'} <{lead.email}>"
+    mail = f"Subject: {msg.subject}\n\n{msg.body}"
+
+    def evidence(quotes: bool) -> str:
+        lines = []
+        for h in ev["hypotheses"]:
+            line = f"{h['id']} ({h['confidence']}): {h['hypothesis']}"
+            lines.append(line + (f"\n   “{h['quote']}” — {h['source_url']}" if quotes else ""))
+        return "Evidence:\n" + "\n".join(lines)
+
+    for with_quotes in (True, False):
+        text = "\n\n".join([head, status, mail, evidence(with_quotes)])
+        if len(text) <= CARD_LIMIT:
+            return text
+    return text[:CARD_LIMIT]
+
+
+class ApprovalService:
+    def __init__(
+        self, repo: Repository, llm: LLM, icp: Icp, footer: Footer, notifier: Notifier,
+        allowed_user_ids: list[int],
+    ) -> None:
+        if not allowed_user_ids:  # an empty allowlist must mean "nobody", never "everybody"
+            raise ValueError("TELEGRAM_ALLOWED_USER_IDS is empty: refusing to start with no authorized user")
+        self.repo, self.llm, self.icp, self.footer, self.notifier = repo, llm, icp, footer, notifier
+        self.allowed = set(allowed_user_ids)
+        self.chat_id = allowed_user_ids[0]  # approvals go to the first allowed user's private chat
+
+    # ---------- outgoing ----------
+
+    def deliver(self, message_id: str) -> None:
+        msg = self.repo.get_message(message_id)
+        lead = self.repo.get_lead(msg.contact_id)
+        self._send_card(msg, lead)
+        self.repo.set_lead_status(lead.contact_id, "awaiting_approval")
+
+    def _send_card(self, msg: Message, lead: Lead) -> None:
+        passed = not msg.evidence["guardrails"]["violations"]
+        key = f"{msg.id}|{msg.version}"
+        buttons = [Button(text="✅ Approve", data=f"approve|{key}")] if passed else []
+        buttons += [Button(text="💡 Suggest changes", data=f"suggest|{key}"), Button(text="❌ Reject", data=f"reject|{key}")]
+        tg_id = self.notifier.send(self.chat_id, format_card(msg, lead), buttons)
+        self.repo.update_message(
+            msg.id, status="awaiting_approval", telegram_chat_id=self.chat_id, telegram_message_id=tg_id
+        )
+
+    # ---------- incoming ----------
+
+    def handle_update(self, update: dict) -> None:
+        try:
+            if "callback_query" in update:
+                self._callback(update["callback_query"])
+            elif update.get("message", {}).get("text"):
+                self._text(update["message"])
+        except Exception as e:  # one bad update must not kill the bot
+            self.repo.log_event("approval_error", payload={"error": f"{type(e).__name__}: {e}"})
+            try:
+                self.notifier.send(self.chat_id, "⚠️ Something went wrong handling that. It has been logged.")
+            except Exception:
+                pass
+
+    def _authorized(self, user_id: int | None, what: str) -> bool:
+        if user_id in self.allowed:
+            return True
+        self.repo.log_event("unauthorized", actor=f"telegram:{user_id}", payload={"attempt": what})
+        return False
+
+    def _callback(self, cq: dict) -> None:
+        if not self._authorized(cq.get("from", {}).get("id"), "callback"):
+            return
+        cb_id, user = cq["id"], cq["from"]["id"]
+        chat_id, tg_msg_id = cq["message"]["chat"]["id"], cq["message"]["message_id"]
+        parts = str(cq.get("data", "")).split("|")
+        try:
+            action, message_id, version = parts[0], str(uuid.UUID(parts[1])), int(parts[2])
+            if action not in ("approve", "suggest", "reject") or len(parts) != 3:
+                raise ValueError
+            msg = self.repo.get_message(message_id)
+        except (ValueError, IndexError, KeyError):
+            self.notifier.answer(cb_id, "I don't recognise that draft.")
+            return
+
+        if msg.version != version:
+            self.notifier.answer(cb_id, f"That card is out of date (current is v{msg.version}).")
+            return
+        actor = f"human:{user}"
+        lead = self.repo.get_lead(msg.contact_id)
+
+        if action == "approve":
+            if msg.status != "awaiting_approval":
+                self.notifier.answer(cb_id, f"Already {msg.status}.")
+                return
+            check = self._recheck(msg)
+            if not check.passed:
+                self.notifier.answer(cb_id, "Blocked: " + "; ".join(v.rule for v in check.violations))
+                return
+            self.repo.update_message(msg.id, status="approved")
+            self.repo.set_lead_status(lead.contact_id, "approved")
+            self.repo.log_event("approved", contact_id=lead.contact_id, message_id=msg.id, actor=actor, payload={"version": msg.version})
+            self.notifier.edit(chat_id, tg_msg_id, f"✅ APPROVED v{msg.version}. Nothing was sent: sending is disabled in Phase 1.\n\nSubject: {msg.subject}\n\n{msg.body}")
+            self.notifier.answer(cb_id, "✅ Approved")
+
+        elif action == "reject":
+            if msg.status not in ("awaiting_approval", "needs_changes"):
+                self.notifier.answer(cb_id, f"Already {msg.status}.")
+                return
+            self.repo.update_message(msg.id, status="rejected")
+            self.repo.set_lead_status(lead.contact_id, "disqualified")
+            self.repo.log_event("rejected", contact_id=lead.contact_id, message_id=msg.id, actor=actor, payload={"version": msg.version})
+            self.notifier.edit(chat_id, tg_msg_id, f"❌ REJECTED v{msg.version}. No action taken.\n\nSubject: {msg.subject}")
+            self.notifier.answer(cb_id, "❌ Rejected")
+
+        else:  # suggest
+            if msg.status != "awaiting_approval":
+                self.notifier.answer(cb_id, f"Can't change a draft that is {msg.status}.")
+                return
+            self.repo.update_message(msg.id, status="needs_changes", telegram_chat_id=chat_id, telegram_message_id=tg_msg_id)
+            self.repo.log_event("changes_requested", contact_id=lead.contact_id, message_id=msg.id, actor=actor)
+            self.notifier.send(chat_id, "✏️ Type what to change. Examples: make it shorter · warmer tone · lead with the hiring signal")
+            self.notifier.answer(cb_id, "Okay, tell me what to change.")
+
+    def _text(self, m: dict) -> None:
+        if not self._authorized(m.get("from", {}).get("id"), "message"):
+            return
+        chat_id, user, text = m["chat"]["id"], m["from"]["id"], m["text"].strip()
+        msg = None if text.startswith("/") else self.repo.message_needing_changes(chat_id)
+        if msg is None:
+            self.notifier.send(chat_id, HELP)
+            return
+
+        lead = self.repo.get_lead(msg.contact_id)
+        report = self.repo.latest_research(lead.company_id)
+        self.notifier.send(chat_id, "✏️ Redrafting…")
+        try:
+            result = generate(lead, report, self.icp, self.llm, self.footer, previous=EmailDraft(**msg.evidence["draft"]), feedback=text)
+        except LLMError as e:
+            self.repo.log_event("redraft_failed", contact_id=lead.contact_id, message_id=msg.id, actor=f"human:{user}", payload={"error": str(e)})
+            self.notifier.send(chat_id, f"Redraft failed ({e}). Send your feedback again.")
+            return
+
+        new = self.repo.update_message(
+            msg.id, subject=result.draft.subject, body=result.text, version=msg.version + 1, feedback=text,
+            evidence=evidence_for(result, report), status="awaiting_approval",
+        )
+        self.repo.log_event(
+            "redrafted", contact_id=lead.contact_id, message_id=msg.id, actor=f"human:{user}",
+            payload={"from_version": msg.version, "feedback": text, "old_subject": msg.subject, "old_body": msg.body},
+        )
+        if msg.telegram_message_id:
+            self.notifier.edit(chat_id, msg.telegram_message_id, f"✏️ Superseded by v{new.version}. Feedback: {text[:300]}")
+        self._send_card(new, lead)
+
+    def _recheck(self, msg: Message):
+        ev = msg.evidence
+        return check_draft(
+            EmailDraft(**ev["draft"]), [Hypothesis(**h) for h in ev["hypotheses"]], self.icp, self.footer
+        )

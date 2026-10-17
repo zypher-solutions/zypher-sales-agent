@@ -1,0 +1,75 @@
+"""Configuration: secrets and runtime settings from env vars, business rules from icp.yaml."""
+from pathlib import Path
+from typing import Annotated
+
+import yaml
+from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+class Settings(BaseSettings):
+    """Everything that comes from the environment. Secrets are SecretStr so they never print."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    anthropic_api_key: SecretStr | None = None
+    llm_model: str = "claude-sonnet-5-5"
+    llm_max_tokens: int = 16000
+
+    database_url: SecretStr | None = None
+
+    telegram_bot_token: SecretStr | None = None
+    # NoDecode: take the raw "1,2,3" string and let the validator split it.
+    telegram_allowed_user_ids: Annotated[list[int], NoDecode] = []
+
+    sender_name: str = "Muhammed Hasheem"
+    sender_title: str = "Chief Executive Officer"
+    sender_email: str = ""
+    sender_postal_address: str = "TODO: postal address"
+    opt_out_line: str = "TODO: opt-out line"
+
+    icp_path: Path = REPO_ROOT / "icp.yaml"
+
+    @field_validator("telegram_allowed_user_ids", mode="before")
+    @classmethod
+    def _split_ids(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [int(p) for p in v.split(",") if p.strip()]
+        return v
+
+
+class Proof(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    text: str
+    may_name_client: bool = False
+    allowed_metrics: list[str] = []
+
+
+class MessagingRules(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    email_word_range: tuple[int, int]
+    tone: str
+    never_say: list[str]
+    never_claim: list[str]
+    hypothesis_style: str
+
+
+class Icp(BaseModel):
+    """The parts of icp.yaml the agents and guardrails use."""
+
+    model_config = ConfigDict(extra="ignore")
+    version: int
+    company: dict
+    proof_points: list[Proof]
+    forbidden_proof: list[str]
+    messaging_rules: MessagingRules
+    offer: dict
+    strategy: dict
+    target: dict
+
+
+def load_icp(path: Path) -> Icp:
+    return Icp.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
