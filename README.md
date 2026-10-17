@@ -3,7 +3,9 @@
 An AI-assisted outbound sales system for **Zypher Software Solutions LLP**. It finds SME leads, researches each business, drafts personalized outreach around **business-process automation**, sends it through compliant channels, handles replies, and hands warm leads to a human.
 
 Owner: Muhammed Hasheem (CEO / technical lead)
-Status: Phase 0, planning and foundation. Replaces the n8n workflow "Cold Outreach - Phase 1".
+Status: Phase 1 code complete (research, drafting, guardrails, Telegram approval). Replaces the n8n workflow "Cold Outreach - Phase 1".
+
+**Product direction:** this is built as a standalone, sellable sales-automation product for SMEs (hotels, restaurants, agencies, clinics, etc.). Zypher is "client zero". See section 10.
 
 ---
 
@@ -173,3 +175,78 @@ To run the Postgres contract tests, point `TEST_DATABASE_URL` at a throwaway dat
 - Never commit `.env`. Rotate any credentials that were exposed in shared workflow exports.
 - Telegram/Slack approvals must verify the sender's user ID against an allowlist.
 - Scraped content is untrusted data and must never be treated as instructions by the agents (prompt-injection risk from lead websites).
+
+## 10. Product vision: from internal tool to SaaS
+
+Zypher is tenant #1. Other SMEs will later get the same agent configured for their own business. The goal is a **complete commercial product that a non-technical owner can run without help**.
+
+### Design principles
+1. **Multi-tenant from the data model up.** Every table carries `tenant_id`; every query is scoped by it (Postgres row-level security as the backstop). Retrofitting this later is far costlier than doing it now.
+2. **Everything Zypher-specific becomes tenant config**, not code: ICP, offer, tone, banned claims, sender identity, send windows, channels, autonomy level (today `icp.yaml` and `.env`).
+3. **Guardrails are platform-level and cannot be disabled by a tenant**: suppression list, opt-out footer, rate limits, evidence-backed claims. These protect every tenant's domain and our liability.
+4. **Non-technical UX**: no YAML, no `.env`, no terminal. Setup is a wizard; daily use is a review inbox.
+5. **Per-tenant isolation of sending**: each tenant uses its own domain and mailboxes. Never share sending infrastructure across tenants (one tenant's spam would burn everyone).
+6. **Cost metering per tenant** (LLM calls are already logged with cost), the basis for pricing.
+
+### Feature set for the commercial product
+
+| Area | Features |
+|---|---|
+| Onboarding | Guided setup wizard: business profile, "what do you sell", ideal customer, tone, proof points; paste website URL and the agent pre-fills the profile for review; sending-domain checklist with live SPF/DKIM/DMARC checks |
+| Leads | CSV upload, manual add, optional Apollo/Google Maps import; dedupe, validation, enrichment; per-lead research summary showing the evidence behind each claim |
+| Campaigns | Pick an audience + offer + channels; multi-step sequences with plain-language editing; preview before launch |
+| Review inbox | Mobile-friendly approve / edit / reject queue for drafts and replies; one-tap actions; Telegram/WhatsApp/email notifications |
+| Sending | Domain warmup schedule, daily caps, business-hours windows per lead timezone, automatic pause on bounce/complaint spikes |
+| Replies | Auto-classification, suggested responses, hand-off to human for anything not a clear negative, meeting-link insertion |
+| Compliance | Automatic opt-out footer, global + per-tenant suppression, consent/source tracking per lead, audit log, data export and deletion (DPDP/GDPR) |
+| Autonomy | Staged levels 0-3 with in-app promotion criteria and metrics (see section 4) |
+| Analytics | Plain-language dashboard: sent, replied, meetings booked, cost per meeting; no jargon |
+| Integrations | CRM sync (Notion first, then HubSpot/Zoho), Slack/Telegram alerts, calendar booking (Calendly/Google) |
+| Admin / billing | Team members and roles, usage metering, subscription billing (Razorpay for India, Stripe elsewhere), support tooling |
+| Channels | Email first; WhatsApp via official Business API templates; LinkedIn as human-assist drafts only |
+
+### Staging (do not build it all at once)
+- **Now (Phases 2-3):** make the engine's features the best they can be, running for Zypher. Architecture stays business-agnostic: config-driven prompts and policy, `tenant_id` on every table, swappable integrations. **No payments, billing, domain management, or UI yet.**
+- **Later:** admin web app (onboarding wizard, review inbox, dashboard), then self-serve signup, billing (Razorpay/Stripe), custom sending-domain management, and industry template packs.
+- Rule: the later items are deliberately deferred, not forgotten. The config/`tenant_id`/interface rules in `CLAUDE.md` exist so adding them needs no rewrite.
+
+### Risks to decide on early
+- **Liability:** we would send outreach on behalf of customers. Terms of service must make the tenant the sender of record and responsible for lawful lead sources; our guardrails must enforce opt-out regardless.
+- **Industry fit:** hotels and restaurants usually rely on inbound/B2C, so cold email may be the wrong core feature for them. Validate which SME segments actually do outbound B2B before building vertical templates.
+- **Data protection:** we will hold our customers' lead data; DPDP/GDPR processor obligations apply.
+
+## 11. What we need from the owner (credentials and decisions)
+
+Secrets go only in `.env` (local) or the host's secret store. Never paste them into chat, commits, or issues.
+
+### Required now (to run Phase 1 for real)
+| Item | Where to get it | Env var |
+|---|---|---|
+| Anthropic API key | console.anthropic.com -> API keys | `ANTHROPIC_API_KEY` |
+| Supabase Postgres URI | Supabase project -> Settings -> Database -> Connection string (URI). Then run `schema.sql` and `migrations/001_phase1.sql` in the SQL editor | `DATABASE_URL` |
+| Telegram bot token | Message @BotFather -> `/newbot` | `TELEGRAM_BOT_TOKEN` |
+| Telegram user ID(s) allowed to approve | Message @userinfobot; one ID per approver, comma-separated | `TELEGRAM_ALLOWED_USER_IDS` |
+| Initial lead list | CSV with company, website, email, country, name (see `scripts/import_leads.py`) | n/a |
+
+### Required for Phase 2 (sending)
+| Item | Notes | Env var |
+|---|---|---|
+| Separate sending domain | Register one (not the main company domain); set up SPF, DKIM, DMARC | n/a |
+| Mailbox(es) on that domain | Google Workspace or similar; app password or SMTP credentials | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SENDER_EMAIL` |
+| Sender identity | Name, registered postal address of the LLP, opt-out wording | `SENDER_NAME`, `SENDER_POSTAL_ADDRESS`, `OPT_OUT_LINE` |
+| Public unsubscribe URL | A small hosted endpoint we build; needs a host (see below) | `UNSUBSCRIBE_BASE_URL` |
+| Hosting | VPS / Railway / Fly.io for the worker and API | n/a |
+
+### Required for Phase 3+ (optional until then)
+| Item | Env var |
+|---|---|
+| Slack bot token + channel ID | `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID` |
+| Notion integration token + CRM database ID (share the database with the integration; send an example of its structure) | `NOTION_TOKEN`, `NOTION_CRM_DATABASE_ID` |
+| WhatsApp Business API token + phone number ID (Meta Business verification needed) | `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` |
+| Apollo API key (if used for lead sourcing) | `APOLLO_API_KEY` |
+
+### Added for the SaaS direction (later)
+Product name and domain; payment provider accounts (Razorpay, Stripe); an auth provider (Supabase Auth is enough); a transactional email provider for system mail (invites, receipts) kept separate from cold-email mailboxes; legal review of ToS, privacy policy, and data-processing terms.
+
+### Decisions still open
+Items 1-7 in section 8, plus: SaaS product name, first target segment beyond Zypher, and pricing model (per seat, per lead, or per meeting booked).
