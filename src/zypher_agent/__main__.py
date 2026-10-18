@@ -97,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true", help="fake websites, mocked LLM, console instead of Telegram")
     run.add_argument("--limit", type=int, default=5, help="max leads per stage (default 5)")
     sub.add_parser("bot", help="listen for Telegram button taps and feedback")
+    sub.add_parser("refresh", help="redraft every draft still awaiting approval with the current prompt, replace its card")
     src = sub.add_parser("source", help="find companies on Google Maps (Apify) and add them as new leads")
     src.add_argument("--query", action="append", required=True, help='e.g. "logistics company" (repeat for more)')
     src.add_argument("--location", required=True, help='e.g. "Dubai, United Arab Emirates"')
@@ -123,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "source":
         return _source(settings, args)
     pipeline, service, tg, repo = _live(settings)
+    if args.cmd == "refresh":
+        print(f"Refreshed {service.refresh_pending()} draft(s). New cards are in Telegram.")
+        return 0
     if args.cmd == "run":
         from zypher_agent.pipeline import ConfigError
 

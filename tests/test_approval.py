@@ -232,3 +232,33 @@ def test_cards_can_go_to_a_partner_group_but_only_allowed_users_act():
     service = ApprovalService(repo, MockLLM(repo, {}), ICP, FOOTER, notifier, [OWNER, 2002], chat_id=-100555)
     assert service.chat_id == -100555
     assert service._authorized(2002, "test") and not service._authorized(3003, "test")
+
+
+# ---------- refreshing stale drafts ----------
+
+def test_refresh_replaces_stale_drafts_with_a_new_version_and_card():
+    repo, notifier, service, msg, _ = world()
+    service.llm = MockLLM(repo, {"draft": SHORTER})
+    assert service.refresh_pending() == 1
+    new = repo.get_message(msg.id)
+    assert new.version == 2 and new.subject == "Shorter version" and new.status == "awaiting_approval"
+    assert "Superseded by v2" in notifier.edits[-1]["text"]
+    assert "Draft v2" in notifier.sent[-1]["text"]
+    tap(service, msg, "approve", version=1)  # the old card's buttons are dead
+    assert "out of date" in popup(notifier) and repo.get_message(msg.id).status == "awaiting_approval"
+
+
+def test_refresh_also_covers_drafts_waiting_for_feedback_and_skips_opted_out():
+    repo, notifier, service, msg, _ = world()
+    tap(service, msg, "suggest")  # now needs_changes
+    service.llm = MockLLM(repo, {"draft": SHORTER})
+    assert service.refresh_pending() == 1 and repo.get_message(msg.id).status == "awaiting_approval"
+    repo.add_suppression("manual", email="ann@acme.com")
+    assert service.refresh_pending() == 0 and repo.get_message(msg.id).status == "rejected"
+
+
+def test_refresh_keeps_going_when_the_model_fails():
+    repo, _, service, msg, _ = world()
+    service.llm = MockLLM(repo, {})  # no "draft" response: raises LLMError
+    assert service.refresh_pending() == 0
+    assert repo.get_message(msg.id).version == 1 and repo.events[-1]["type"] == "refresh_failed"

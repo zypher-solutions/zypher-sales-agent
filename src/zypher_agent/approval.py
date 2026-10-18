@@ -237,6 +237,49 @@ class ApprovalService:
             self.notifier.edit(chat_id, msg.telegram_message_id, f"✏️ Superseded by v{new.version}. Feedback: {text[:300]}")
         self._send_card(new, lead)
 
+    def refresh_pending(self) -> int:
+        """Redraft every draft still waiting on a human, with the current prompt and rules, and replace its card.
+
+        Used after the prompt or guardrails improve, so stale drafts never get approved. Each draft gets
+        the full check again; the old card is marked superseded, and its buttons stop working because
+        they carry the old version number. Returns how many drafts were refreshed.
+        """
+        count = 0
+        for msg in self.repo.messages_with_status(["awaiting_approval", "needs_changes"]):
+            lead = self.repo.get_lead(msg.contact_id)
+            if self.repo.is_suppressed(lead.email, lead.domain):
+                self.repo.update_message(msg.id, status="rejected")
+                self.repo.log_event("skipped_suppressed", contact_id=lead.contact_id, message_id=msg.id, actor="system")
+                continue
+            report = self.repo.latest_research(lead.company_id)
+            if report is None:
+                continue
+            try:
+                result = generate(lead, report, self.icp, self.llm, self.footer)
+            except LLMError as e:
+                self.repo.log_event("refresh_failed", contact_id=lead.contact_id, message_id=msg.id, payload={"error": str(e)})
+                continue
+            new = self.repo.update_message(
+                msg.id, subject=result.draft.subject, body=result.text, version=msg.version + 1,
+                feedback="auto-refresh: prompt and rules updated", evidence=evidence_for(result, report),
+                status="awaiting_approval",
+            )
+            self.repo.log_event(
+                "refreshed", contact_id=lead.contact_id, message_id=msg.id, actor="system",
+                payload={"from_version": msg.version, "old_subject": msg.subject, "old_body": msg.body},
+            )
+            if msg.telegram_message_id:
+                try:
+                    self.notifier.edit(
+                        msg.telegram_chat_id or self.chat_id, msg.telegram_message_id,
+                        f"♻️ Superseded by v{new.version} (improved wording). This card is out of date.",
+                    )
+                except Exception as e:  # an old card we can no longer edit must not stop the refresh
+                    self.repo.log_event("refresh_edit_failed", message_id=msg.id, payload={"error": str(e)})
+            self._send_card(new, lead)
+            count += 1
+        return count
+
     def _suppress(self, chat_id: int, user: int, target: str) -> None:
         """Opt-outs are honoured immediately: research, drafting, approval (and later sending) all check this list."""
         target = target.strip()

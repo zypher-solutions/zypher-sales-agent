@@ -49,6 +49,7 @@ class Repository(Protocol):
     def set_company_industry(self, company_id: str, industry: str) -> None: ...
     def update_message(self, message_id: str, **fields: object) -> Message: ...
     def message_needing_changes(self, chat_id: int) -> Message | None: ...
+    def messages_with_status(self, statuses: list[str]) -> list[Message]: ...
     def log_event(
         self, type: str, *, contact_id: str | None = None, message_id: str | None = None,
         actor: str = "agent", payload: dict | None = None,
@@ -279,6 +280,13 @@ class PostgresRepo:
         ).fetchone()
         return self._message(r) if r else None
 
+    def messages_with_status(self, statuses: list[str]) -> list[Message]:
+        rows = self._exec(
+            "select * from messages where tenant_id = %s and status = any(%s::message_status[]) order by created_at",
+            (self.tenant_id, statuses),
+        ).fetchall()
+        return [self._message(r) for r in rows]
+
     def log_event(
         self, type: str, *, contact_id: str | None = None, message_id: str | None = None,
         actor: str = "agent", payload: dict | None = None,
@@ -450,6 +458,12 @@ class InMemoryRepo:
             and self._store.message_tenant[m.id] == self.tenant_id
         ]
         return found[-1] if found else None
+
+    def messages_with_status(self, statuses: list[str]) -> list[Message]:
+        return [
+            m for m in self.messages.values()
+            if m.status in statuses and self._store.message_tenant[m.id] == self.tenant_id
+        ]
 
     def log_event(
         self, type: str, *, contact_id: str | None = None, message_id: str | None = None,
