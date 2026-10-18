@@ -27,10 +27,19 @@ Put every value in a local `.env` file (copy `.env.example`). Never paste secret
    TELEGRAM_ALLOWED_USER_IDS=111111111,222222222
    ```
 
-## 4. Lead list
+## 4. Finding leads automatically (`APIFY_TOKEN`)
+1. Sign up at https://console.apify.com (the free plan includes about $5 of credit a month).
+2. Settings -> API & Integrations -> copy your personal API token into `.env` as `APIFY_TOKEN=`.
+3. Preview a search (uses a little credit, writes nothing):
+   `python -m zypher_agent source --query "logistics company" --location "Dubai, United Arab Emirates" --max 10 --preview`
+4. Import for real by dropping `--preview`. Cost is about $0.004 per place; Apify enforces a hard cap per run.
+   Companies arrive without an email: the research step reads public business emails from their own website,
+   checks the domain can receive mail, and parks the lead as `nurture` if there is none (the phone is kept for a human).
+
+## 5. Lead list (optional CSV import)
 CSV with company, website, email, country, contact name. See `scripts/import_leads.py` for exact columns. Start with 20-30 real leads you have hand-checked.
 
-## 5. Check it works
+## 6. Check it works
 ```
 pip install -e ".[dev]"
 python -m pytest

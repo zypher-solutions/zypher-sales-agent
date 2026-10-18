@@ -34,6 +34,8 @@ MESSAGE_FIELDS = {
 
 class Repository(Protocol):
     def upsert_lead(self, company: CompanyIn, contact: ContactIn) -> str: ...
+    def company_exists(self, domain: str) -> bool: ...
+    def set_contact_email(self, contact_id: str, email: str) -> None: ...
     def is_suppressed(self, email: str | None, domain: str | None) -> bool: ...
     def add_suppression(self, reason: str, email: str | None = None, domain: str | None = None) -> None: ...
     def leads_with_status(self, status: str, limit: int) -> list[Lead]: ...
@@ -98,17 +100,29 @@ class PostgresRepo:
                  company.industry, company.notes, company.source),
             ).fetchone()
             row = self._exec(
-                """insert into contacts (tenant_id, company_id, full_name, role, email, legacy_lead_id)
-                   values (%s, %s, %s, %s, %s, %s)
+                """insert into contacts (tenant_id, company_id, full_name, role, email, phone, legacy_lead_id)
+                   values (%s, %s, %s, %s, %s, %s, %s)
                    on conflict (company_id, email) do update set
                      full_name = coalesce(excluded.full_name, contacts.full_name),
                      role = coalesce(excluded.role, contacts.role),
+                     phone = coalesce(excluded.phone, contacts.phone),
                      legacy_lead_id = coalesce(excluded.legacy_lead_id, contacts.legacy_lead_id)
                    returning id""",
-                (self.tenant_id, comp["id"], contact.full_name, contact.role, contact.email,
+                (self.tenant_id, comp["id"], contact.full_name, contact.role, contact.email, contact.phone,
                  contact.legacy_lead_id),
             ).fetchone()
         return str(row["id"])
+
+    def company_exists(self, domain: str) -> bool:
+        row = self._exec(
+            "select 1 from companies where tenant_id = %s and domain = %s", (self.tenant_id, domain)
+        ).fetchone()
+        return row is not None
+
+    def set_contact_email(self, contact_id: str, email: str) -> None:
+        self._exec(
+            "update contacts set email = %s where id = %s and tenant_id = %s", (email, contact_id, self.tenant_id)
+        )
 
     def is_suppressed(self, email: str | None, domain: str | None) -> bool:
         row = self._exec(
@@ -129,7 +143,7 @@ class PostgresRepo:
 
     _LEAD_SQL = """select c.id as contact_id, co.id as company_id, co.name as company_name,
                           co.domain, co.website, co.country, co.industry,
-                          c.full_name as contact_name, c.email
+                          c.full_name as contact_name, c.email, c.phone
                    from contacts c join companies co on co.id = c.company_id
                    where c.tenant_id = %s and co.tenant_id = %s"""
 
@@ -367,8 +381,16 @@ class InMemoryRepo:
         return Lead(
             contact_id=c["id"], company_id=co["id"], company_name=co["name"], domain=co["domain"],
             website=co["website"], country=co["country"], industry=co["industry"],
-            contact_name=c["full_name"], email=c["email"],
+            contact_name=c["full_name"], email=c["email"], phone=c.get("phone"),
         )
+
+    def company_exists(self, domain: str) -> bool:
+        return any(c["tenant_id"] == self.tenant_id and c["domain"] == domain for c in self.companies.values())
+
+    def set_contact_email(self, contact_id: str, email: str) -> None:
+        c = self.contacts.get(contact_id)
+        if c is not None and c["tenant_id"] == self.tenant_id:
+            c["email"] = email
 
     def leads_with_status(self, status: str, limit: int) -> list[Lead]:
         return [

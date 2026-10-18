@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-19: Leads come from Google Maps via Apify; emails only from the company's own site
+- **Decision:** `zypher_agent source` runs Apify's `compass/crawler-google-places` (places with a website, open only) and imports companies with no email. During research the pipeline takes the best public business address from their own pages (own domain first; careers/no-reply/HR inboxes skipped), checks the domain accepts mail, and checks the do-not-contact list. No usable address: status `nurture`, phone kept for a human.
+- **Why:** automation instead of hand-built spreadsheets; public business addresses are the defensible source for B2B outreach; we do not buy Apify's contact enrichment (personal data, extra cost).
+- **Trade-offs:** Maps categories are noisy ("general trading company" also returns shops and travel agents); the research agent's disqualifiers and your approval filter them. Sites on shared hosts (netlify.app, base44.app and similar) are skipped because the domain cannot identify the company. Measured live: 30 Dubai companies for about $0.13; 3 of 3 researched leads had a usable public email.
+
 ## 2026-10-19: Supabase Data API is locked (RLS on, no policies)
 - **Decision:** migration 003 enables row-level security on every table with no policies.
 - **Why:** Supabase exposes all `public` tables through its REST API, and the `anon` key is meant to be public. Without RLS, anyone with that key could read or change leads. The agent connects as the table owner, which RLS does not apply to.

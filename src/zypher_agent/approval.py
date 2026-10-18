@@ -76,6 +76,8 @@ def format_card(msg: Message, lead: Lead) -> str:
         if violations else "✅ Passed all checks"
     )
     head = f"📧 Draft v{msg.version} · {lead.company_name} ({lead.domain})\nTo: {lead.contact_name or 'there'} <{lead.email}>"
+    if lead.phone:  # for a follow-up call or WhatsApp by a human
+        head += f"\nPhone: {lead.phone}"
     mail = f"Subject: {msg.subject}\n\n{msg.body}"
 
     def evidence(quotes: bool) -> str:

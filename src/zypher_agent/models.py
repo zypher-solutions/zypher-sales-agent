@@ -16,6 +16,7 @@ class Lead(BaseModel):
     industry: str | None = None
     contact_name: str | None = None
     email: str | None = None
+    phone: str | None = None
 
 
 class Hypothesis(BaseModel):
@@ -57,6 +58,7 @@ class ContactIn(BaseModel):
     full_name: str | None = None
     role: str | None = None
     email: str | None = None
+    phone: str | None = None
     legacy_lead_id: str | None = None
 
 

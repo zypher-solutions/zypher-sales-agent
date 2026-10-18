@@ -154,6 +154,8 @@ def check_draft(
         fail("body_wrapper", "body must not contain a greeting or sign-off; code adds them")
     if not subject.strip() or len(subject) > 80:
         fail("subject", "subject must be 1-80 characters")
+    if len(subject.split()) > 6:
+        fail("subject", "subject must be 6 words or fewer: short subjects read like a colleague, not a pitch")
     if re.match(r"\s*(re|fwd?):", subject, re.IGNORECASE) or subject.lower().startswith("subject:"):
         fail("subject", "subject must not fake a reply/forward or repeat 'Subject:'")
 

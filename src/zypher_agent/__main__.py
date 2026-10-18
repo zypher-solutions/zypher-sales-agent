@@ -40,10 +40,47 @@ def _live(settings: Settings):
     return Pipeline(repo, HttpFetcher(user_agent=agent), llm, icp, footer, service), service, tg, repo
 
 
+def _source(settings: Settings, args) -> int:
+    from zypher_agent.db import PostgresRepo
+    from zypher_agent.sources.apify_maps import ApifyMapsSource, SourceError, estimate_cost_usd
+    from zypher_agent.sources.base import import_sourced
+
+    _require(settings, "apify_token", *([] if args.preview else ["database_url"]))
+    est = sum(estimate_cost_usd(args.max) for _ in args.query)
+    print(
+        f"Searching {len(args.query)} query(s) in {args.location}, up to {args.max} places each. "
+        f"Estimated Apify cost: about ${est:.2f} (Apify also enforces a hard cap per run)."
+    )
+    source = ApifyMapsSource(settings.apify_token.get_secret_value())
+    repo = None if args.preview else PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
+    for query in args.query:
+        try:
+            found = source.search(query, args.location, args.max)
+        except SourceError as e:
+            print(f"\n[{query}] failed: {e}")
+            continue
+        print(f"\n[{query}] {len(found)} companies with their own website, {len(source.last_skipped)} skipped")
+        for c in found:
+            print(f"  {c.name[:40]:<40} {c.domain:<30} {c.industry or ''}")
+        for name, why in source.last_skipped:
+            print(f"  skipped {name[:40]:<40} ({why})")
+        if repo is not None:
+            r = import_sourced(repo, found)
+            print(
+                f"  -> imported {len(r.imported)}, already known {len(r.already_known)}, "
+                f"on do-not-contact list {len(r.suppressed)}"
+            )
+    if repo is not None:
+        print("\nNext: `python -m zypher_agent run --limit 5` researches them, finds a public email, drafts, "
+              "and sends cards to Telegram.")
+    return 0
+
+
 def _print_summary(s) -> None:
     print(
         f"\nResearched: {s.researched} | disqualified: {s.disqualified} | drafted: {s.drafted} | "
-        f"sent to Telegram for approval: {s.delivered} | skipped (opted out): {s.suppressed} | failed: {len(s.failed)}"
+        f"sent to Telegram for approval: {s.delivered} | no usable email: {s.no_email} | "
+        f"skipped (opted out): {s.suppressed} | failed: {len(s.failed)}"
     )
     for f in s.failed:
         print(f"  FAILED {f}")
@@ -60,6 +97,13 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--dry-run", action="store_true", help="fake websites, mocked LLM, console instead of Telegram")
     run.add_argument("--limit", type=int, default=5, help="max leads per stage (default 5)")
     sub.add_parser("bot", help="listen for Telegram button taps and feedback")
+    src = sub.add_parser("source", help="find companies on Google Maps (Apify) and add them as new leads")
+    src.add_argument("--query", action="append", required=True, help='e.g. "logistics company" (repeat for more)')
+    src.add_argument("--location", required=True, help='e.g. "Dubai, United Arab Emirates"')
+    src.add_argument("--max", type=int, default=20, help="max places per query, 1-100 (default 20)")
+    src.add_argument(
+        "--preview", action="store_true", help="search and show results but write nothing (still uses Apify credit)"
+    )
     args = ap.parse_args(argv)
 
     if args.cmd == "run" and args.dry_run:
@@ -76,6 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = Settings()
+    if args.cmd == "source":
+        return _source(settings, args)
     pipeline, service, tg, repo = _live(settings)
     if args.cmd == "run":
         from zypher_agent.pipeline import ConfigError

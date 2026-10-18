@@ -82,10 +82,14 @@ The ask: {icp.offer['first_touch_cta']}.
 WRITE ONLY THE BODY
 - Plain text, {lo} to {hi} words. No greeting, no sign-off, no signature, no opt-out line, no subject line inside the body. Code adds those.
 - Tone: {rules.tone}. Write like one business owner to another: short sentences, contractions are fine, say "you" and "your" far more than "we" or "I".
-- Sentence 1: ONE specific observation about THEIR business, taken from the evidence below. {rules.hypothesis_style.capitalize()}.
+- Sentence 1: point to ONE concrete thing you saw on their site, in your own words (for example "I saw your site promises a free quote, 24/7"), then ask whether the task behind it is done by hand. {rules.hypothesis_style.capitalize()}. Never paste the evidence observation word for word.
 - Sentence 2: one plain sentence on how we could help, based on the offer above. Do not copy it word for word.
 - Last sentence: the ask, as one easy yes/no question. The email MUST end with a question mark. Never ask for a call, a meeting, a demo or their time.
+- Plain words a busy owner reads in five seconds. Avoid jargon (CRM, API, integration, workflow, automations) unless their own site uses it.
 - No links, no web addresses, no urgency, no pressure, no emojis.
+
+SUBJECT
+2 to 5 plain words, lowercase, like a note from a colleague (for example "quote requests" or "booking confirmations"). No pitch words such as automate, boost, solution, idea.
 
 HARD LIMITS
 - Never use these phrases: {', '.join(rules.never_say)}.

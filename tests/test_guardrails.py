@@ -175,3 +175,8 @@ def test_ordinary_wording_is_not_mistaken_for_a_meeting_request():
 def test_result_claims_in_words_are_rejected(claim):
     # Seen live: "Cut manual quote work in half" passed as a subject line.
     assert "unsupported_number" in rules(make(subject=claim))
+
+
+def test_long_pitchy_subjects_are_rejected():
+    assert "subject" in rules(make(subject="Quick idea to automate your shipment quote process"))
+    assert "subject" not in rules(make(subject="quote requests"))

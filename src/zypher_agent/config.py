@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     database_url: SecretStr | None = None
     tenant_id: str = DEFAULT_TENANT_ID
 
+    apify_token: SecretStr | None = None  # lead sourcing (Google Maps via Apify)
+
     telegram_bot_token: SecretStr | None = None
     # NoDecode: take the raw "1,2,3" string and let the validator split it.
     telegram_allowed_user_ids: Annotated[list[int], NoDecode] = []

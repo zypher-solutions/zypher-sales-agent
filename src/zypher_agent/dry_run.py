@@ -152,7 +152,7 @@ def build(echo: bool = True, icp: Icp | None = None) -> DryRun:
         "research": lambda s, u: RESEARCH[_domain(u)], "draft": _draft, "redraft": _redraft,
     })
     service = ApprovalService(repo, llm, icp, DRY_FOOTER, notifier, [OWNER_ID])
-    return DryRun(repo, notifier, llm, service, Pipeline(repo, FakeFetcher(SITES), llm, icp, DRY_FOOTER, service))
+    return DryRun(repo, notifier, llm, service, Pipeline(repo, FakeFetcher(SITES), llm, icp, DRY_FOOTER, service, email_ok=lambda e: True))
 
 
 def _card_for(run: DryRun, company: str) -> dict:

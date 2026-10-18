@@ -214,3 +214,15 @@ def test_postgres_repo_reconnects_after_a_broken_connection():
     repo._connect = lambda: fresh
     repo._exec("select 1")
     assert repo.conn is fresh and fresh.ran == ["select 1"]
+
+
+def test_company_exists_and_contact_email_are_tenant_scoped(two_tenants):
+    a, b = two_tenants
+    domain = f"{uuid.uuid4().hex[:8]}.test.com"
+    cid = a.upsert_lead(CompanyIn(name="Src", domain=domain, source="test"), ContactIn(phone="+971 1"))
+    assert a.company_exists(domain) and not b.company_exists(domain)
+    lead = a.get_lead(cid)
+    assert lead.email is None and lead.phone == "+971 1"
+    b.set_contact_email(cid, "hijack@evil.com")  # other tenant: no effect
+    a.set_contact_email(cid, f"info@{domain}")
+    assert a.get_lead(cid).email == f"info@{domain}"

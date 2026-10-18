@@ -1,5 +1,6 @@
 """CSV lead import: parsing, validation, and writing through the Repository."""
 import csv
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -31,6 +32,30 @@ def clean_email(raw: str) -> str | None:
         return validate_email(raw, check_deliverability=False).normalized.lower()
     except EmailNotValidError:
         return None
+
+
+# Addresses that reach the wrong person (or no one) for a sales email.
+WRONG_INBOX = re.compile(
+    r"^(no-?reply|do-?not-?reply|careers?|jobs?|hr|recruit\w*|resumes?|cv|privacy|abuse|postmaster|webmaster"
+    r"|billing|accounts?payable|invoices?)@",
+    re.IGNORECASE,
+)
+
+
+def rank_contact_emails(found: list[str], domain: str) -> list[str]:
+    """Usable public addresses, best first: on the company's own domain, then any other (many SMEs use gmail)."""
+    usable = [e for e in dict.fromkeys(found) if not WRONG_INBOX.match(e)]
+    own = [e for e in usable if e.endswith(("@" + domain, "." + domain))]
+    return own + [e for e in usable if e not in own]
+
+
+def has_mail_server(email: str) -> bool:
+    """True if the address's domain accepts mail (MX/A record). One DNS lookup, no email is sent."""
+    try:
+        validate_email(email, check_deliverability=True)
+    except EmailNotValidError:
+        return False
+    return True
 
 
 @dataclass

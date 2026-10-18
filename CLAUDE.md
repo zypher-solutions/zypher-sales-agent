@@ -42,7 +42,9 @@ An AI outbound sales agent. Built first for **Zypher Software Solutions LLP** (K
 ## Commands (Windows, PowerShell)
 - Tests: `.\.venv\Scripts\python.exe -m pytest -q` (the global Python lacks the package; always use the venv)
 - Lint: `.\.venv\Scripts\python.exe -m ruff check .`
-- Dry run (no keys, no cost): `.\.venv\Scripts\python.exe -m zypher_agent --help` for current subcommands
+- Dry run (no keys, no cost): `.\.venv\Scripts\python.exe -m zypher_agent run --dry-run`
+- Find leads (Apify, costs credit): `... -m zypher_agent source --query "logistics company" --location "Dubai, United Arab Emirates" --max 20` (`--preview` writes nothing)
+- Research + draft + Telegram cards: `... -m zypher_agent run --limit 5`; handle taps: `... -m zypher_agent bot`
 
 ## How we work (SDLC)
 The owner is new to code and uses Claude as guide. For every non-trivial task:

@@ -15,6 +15,7 @@ from zypher_agent.config import Icp
 from zypher_agent.db import Repository
 from zypher_agent.drafting.email import evidence_for, generate
 from zypher_agent.guardrails.checks import footer_problems
+from zypher_agent.leads import has_mail_server, rank_contact_emails
 from zypher_agent.llm import LLM
 from zypher_agent.models import Footer, Lead, NewMessage
 from zypher_agent.research.agent import research_lead
@@ -32,16 +33,19 @@ class RunSummary:
     drafted: int = 0
     delivered: int = 0
     suppressed: int = 0
+    no_email: int = 0
     failed: list[str] = field(default_factory=list)
 
 
 class Pipeline:
     def __init__(
-        self, repo: Repository, fetcher: Fetcher, llm: LLM, icp: Icp, footer: Footer, approvals: ApprovalService
+        self, repo: Repository, fetcher: Fetcher, llm: LLM, icp: Icp, footer: Footer, approvals: ApprovalService,
+        email_ok: Callable[[str], bool] = has_mail_server,
     ) -> None:
         self.repo, self.fetcher, self.llm, self.icp, self.footer, self.approvals = (
             repo, fetcher, llm, icp, footer, approvals,
         )
+        self.email_ok = email_ok
 
     def run(self, limit: int = 5) -> RunSummary:
         # Fail before spending anything: a draft with a placeholder footer could never be approved.
@@ -87,9 +91,25 @@ class Pipeline:
             self.repo.set_lead_status(lead.contact_id, "disqualified")
             self.repo.log_event("disqualified", contact_id=lead.contact_id, payload={"reason": report.disqualify_reason})
             summary.disqualified += 1
+        elif lead.email is None and not self._adopt_email(lead, report.public_emails):
+            # Sourced companies arrive without an email. No usable public address: a human can still
+            # call or use LinkedIn (phone is on the lead), but we never guess an address.
+            self.repo.set_lead_status(lead.contact_id, "nurture")
+            self.repo.log_event("no_usable_email", contact_id=lead.contact_id, payload={"found": report.public_emails})
+            summary.no_email += 1
         else:
             self.repo.set_lead_status(lead.contact_id, "researched")
             summary.researched += 1
+
+    def _adopt_email(self, lead: Lead, found: list[str]) -> str | None:
+        """Use the best public business address from their own site that can receive mail."""
+        for email in rank_contact_emails(found, lead.domain):
+            if self.repo.is_suppressed(email, lead.domain) or not self.email_ok(email):
+                continue
+            self.repo.set_contact_email(lead.contact_id, email)
+            self.repo.log_event("email_found", contact_id=lead.contact_id, payload={"email": email, "from": "website"})
+            return email
+        return None
 
     def _draft(self, lead: Lead, summary: RunSummary) -> None:
         report = self.repo.latest_research(lead.company_id)
