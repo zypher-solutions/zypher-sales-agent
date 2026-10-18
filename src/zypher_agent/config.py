@@ -89,6 +89,8 @@ class Proof(BaseModel):
     id: str
     text: str
     may_name_client: bool = False
+    safe_wording: str = ""  # the only honest way to refer to this proof point in an email
+    never_name: list[str] = []  # words that identify the client; rejected in every email while may_name_client is false
     allowed_metrics: list[str] = []
 
 
@@ -113,6 +115,16 @@ class Offer(BaseModel):
     avoid_patterns: list[str] = []  # regexes rejected in a first touch (offers we are not pitching yet)
 
 
+class SequenceStep(BaseModel):
+    """One follow-up email. `kind` picks the platform rules (see guardrails), `angle` is what is new."""
+
+    model_config = ConfigDict(extra="ignore")
+    step: int
+    kind: Literal["new_angle", "referral", "breakup"]
+    delay_business_days: int
+    angle: str
+
+
 class Icp(BaseModel):
     """The parts of icp.yaml the agents and guardrails use."""
 
@@ -126,10 +138,25 @@ class Icp(BaseModel):
     strategy: dict
     target: dict
     offers: list[Offer] = []
+    sequence: list[SequenceStep] = []
 
 
 def load_icp(path: Path) -> Icp:
     return Icp.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+def kind_for_step(icp: Icp, step: int) -> str:
+    """Which platform rules apply to this step: the first touch, or the kind named in the sequence config."""
+    if step <= 1:
+        return "first_touch"
+    spec = sequence_step(icp, step)
+    if spec is None:
+        raise ValueError(f"icp.yaml has no sequence step {step}")
+    return spec.kind
+
+
+def sequence_step(icp: Icp, step: int) -> SequenceStep | None:
+    return next((s for s in icp.sequence if s.step == step), None)
 
 
 def first_touch_offer(icp: Icp) -> Offer:

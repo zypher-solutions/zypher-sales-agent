@@ -31,7 +31,8 @@ Offer, distribution, and the sales conversation. A great salesperson cannot resc
 - Tonality tactics are for voice calls; in email the equivalent is plain, short, warm wording.
 - We do not claim results, clients or numbers we cannot prove (platform guardrail).
 
-## 4. Email sequence (config-driven, target 4 emails over about 3 weeks)
+## 4. Email sequence (config-driven in icp.yaml `sequence:`, 4 emails over about 4 weeks)
+Timing is in WORKING days of the lead's own country after the previous email: step 2 after 3, step 3 after 5 more, step 4 after 9 more. The table below shows the intent; icp.yaml is the source of truth.
 | Step | Day | Angle |
 |---|---|---|
 | 1 | 0 | Specific observation about their workflow, ending with a question; offer a one-page sketch, no call |

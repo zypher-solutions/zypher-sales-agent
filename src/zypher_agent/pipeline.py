@@ -9,9 +9,10 @@ its status so the next run retries it.
 """
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 
 from zypher_agent.approval import ApprovalService
-from zypher_agent.config import Icp
+from zypher_agent.config import Icp, sequence_step
 from zypher_agent.db import Repository
 from zypher_agent.drafting.email import evidence_for, generate
 from zypher_agent.guardrails.checks import footer_problems
@@ -20,6 +21,7 @@ from zypher_agent.llm import LLM
 from zypher_agent.models import Footer, Lead, NewMessage
 from zypher_agent.research.agent import research_lead
 from zypher_agent.research.fetcher import Fetcher
+from zypher_agent.sender.policy import business_days_since
 
 
 class ConfigError(Exception):
@@ -34,6 +36,8 @@ class RunSummary:
     delivered: int = 0
     suppressed: int = 0
     no_email: int = 0
+    followups: int = 0  # follow-up drafts sent to you for approval
+    completed: int = 0  # sequences that reached their end
     failed: list[str] = field(default_factory=list)
 
 
@@ -61,7 +65,55 @@ class Pipeline:
                 if self._suppressed(lead, summary):
                     continue
                 self._guard(summary, lead, stage)
+        self.run_followups(limit, summary=summary)
         return summary
+
+    def run_followups(self, limit: int = 5, now: datetime | None = None, summary: RunSummary | None = None) -> RunSummary:
+        """Draft the next email for every lead whose wait is over. Each one goes to you for approval, like the first.
+
+        A lead is a candidate only while its status is 'in_sequence': that means at least one email has been sent,
+        nobody has replied, bounced or opted out, and no follow-up is already waiting on a card.
+        """
+        summary = summary or RunSummary()
+        now = now or datetime.now(UTC)
+        drafted = 0
+        for lead, last_step, last_sent_at in self.repo.sequence_candidates():
+            if drafted >= limit:
+                break
+            if self._suppressed(lead, summary):
+                continue
+
+            def followup(lead: Lead, summary: RunSummary, last_step=last_step, last_sent_at=last_sent_at) -> None:
+                nonlocal drafted
+                drafted += self._followup(lead, summary, last_step, last_sent_at, now)
+
+            self._guard(summary, lead, followup)
+        return summary
+
+    def _followup(self, lead: Lead, summary: RunSummary, last_step: int, last_sent_at: datetime, now: datetime) -> int:
+        spec = sequence_step(self.icp, last_step + 1)
+        if spec is None:  # the last email of the sequence has gone out: stop for good
+            self.repo.set_lead_status(lead.contact_id, "nurture")
+            self.repo.log_event("sequence_complete", contact_id=lead.contact_id, actor="system")
+            summary.completed += 1
+            return 0
+        waited = business_days_since(last_sent_at, now, lead.country)
+        if waited is None or waited < spec.delay_business_days:
+            return 0
+        if self.repo.has_event_since(lead.contact_id, "out_of_office", now - timedelta(days=7)):
+            return 0  # they are away: wait
+        report = self.repo.latest_research(lead.company_id)
+        if report is None:
+            return 0
+        sent = [(m.step, m.subject, m.body) for m in self.repo.sent_messages(lead.contact_id)]
+        result = generate(lead, report, self.icp, self.llm, self.footer, step=spec.step, sent=sent)
+        msg = self.repo.save_message(NewMessage(
+            contact_id=lead.contact_id, subject=result.draft.subject, body=result.text,
+            evidence=evidence_for(result, report), step=spec.step,
+        ))
+        self.approvals.deliver(msg.id)
+        summary.followups += 1
+        return 1
 
     def _suppressed(self, lead: Lead, summary: RunSummary) -> bool:
         """Someone can opt out after import. Check at every stage, before spending anything on them."""
@@ -112,6 +164,9 @@ class Pipeline:
         return None
 
     def _draft(self, lead: Lead, summary: RunSummary) -> None:
+        if self.repo.first_message_header(lead.contact_id) is not None:  # already emailed: not a first touch
+            self.repo.set_lead_status(lead.contact_id, "in_sequence")
+            return
         report = self.repo.latest_research(lead.company_id)
         result = generate(lead, report, self.icp, self.llm, self.footer)
         self.repo.save_message(NewMessage(

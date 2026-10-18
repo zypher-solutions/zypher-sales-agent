@@ -17,6 +17,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 UTC = UTC
+STOPPED = frozenset({"replied", "unsubscribed", "bounced", "disqualified"})  # lead statuses that end a sequence
 HARD_CEILING = 20  # absolute maximum per day while sending from the company's main domain
 
 # Where a lead is, its working days (Monday=0 ... Sunday=6) and its clock. Unknown country: blocked, never guessed.
@@ -64,6 +65,7 @@ class SendContext:
     min_gap_seconds: int               # minimum spacing since the last send (the caller adds random jitter)
     env_cap: int | None                # the owner's own, lower, daily cap
     sender_tz: ZoneInfo                # the day boundary for "today" is midnight here
+    contact_status: str = "approved"   # the lead's status: a reply, bounce or opt-out ends the sequence
 
 
 def normalize_country(raw: str | None) -> str | None:
@@ -102,6 +104,19 @@ def local_window_start(tz: ZoneInfo, workdays: frozenset[int] | set[int], now: d
     raise RuntimeError("no working day within ten days")  # unreachable: every country has working days
 
 
+def business_days_since(start: datetime, now: datetime, country: str | None) -> int | None:
+    """Working days that have passed between two moments, counted on the LEAD's calendar (None: unknown country)."""
+    name = normalize_country(country)
+    if name is None:
+        return None
+    tz, workdays = COUNTRIES[name]
+    day, last, count = start.astimezone(tz).date(), now.astimezone(tz).date(), 0
+    while day < last:
+        day += timedelta(days=1)
+        count += day.weekday() in workdays
+    return count
+
+
 def decide(c: SendContext) -> Decision:
     if c.now.tzinfo is None:
         raise ValueError("SendContext.now must be timezone-aware")
@@ -115,6 +130,8 @@ def decide(c: SendContext) -> Decision:
         return Decision("block", "sending is paused")
     if c.suppressed:
         return Decision("block", "contact is on the do-not-contact list")
+    if c.contact_status in STOPPED:
+        return Decision("block", f"the contact has {c.contact_status}: the sequence is over")
     if c.violations:
         return Decision("block", "fails the current guardrails: " + ", ".join(c.violations))
     if c.step == 1 and c.company_already_contacted:

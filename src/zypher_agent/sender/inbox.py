@@ -328,6 +328,7 @@ class InboxProcessor:
         if address:
             self.repo.add_suppression("bounce", email=address)
         self.repo.set_lead_status(lead.contact_id, "bounced")
+        self.repo.cancel_unsent(lead.contact_id, "address bounced")
         self.repo.log_event("bounced", contact_id=lead.contact_id, message_id=msg.id, payload={"detail": p.bounce_detail, "at": "inbox"})
         self.alert(f"Bounced: {address} ({lead.company_name}). {p.bounce_detail}\nAdded to the do-not-contact list.")
         self._check_stoploss(complaint=False)
@@ -353,6 +354,7 @@ class InboxProcessor:
         if p.message_id:
             self.repo.update_message(stored.id, message_id_header=p.message_id)
         self.repo.set_lead_status(lead.contact_id, "replied")
+        withdrawn = self.repo.cancel_unsent(lead.contact_id, "contact replied")
         self.repo.log_event("replied", contact_id=lead.contact_id, message_id=stored.id, payload={"class": label, "from": p.sender})
         note = ""
         if opt_out:
@@ -361,7 +363,8 @@ class InboxProcessor:
             note = "\nThey asked not to be contacted: added to the do-not-contact list automatically."
         who = f"{lead.contact_name or 'Someone'} <{p.sender}> at {lead.company_name}"
         excerpt = p.text[:EXCERPT] + ("..." if len(p.text) > EXCERPT else "")
-        self.alert(f"Reply from {who}  [{label}]\n\n{excerpt or '(empty reply)'}{note}")
+        pending = f"\n{withdrawn} unsent follow-up(s) to them were withdrawn." if withdrawn else ""
+        self.alert(f"Reply from {who}  [{label}]\n\n{excerpt or '(empty reply)'}{note}{pending}")
         if complaint:
             self._check_stoploss(complaint=True)
 

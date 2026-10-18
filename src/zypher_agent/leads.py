@@ -44,11 +44,11 @@ WRONG_INBOX = re.compile(
 
 # Who reads an inbox decides whether a sales email gets answered. Best to worst; the first match wins.
 INBOX_PREFERENCE = [
-    re.compile(r"^(owner|founder|ceo|md|director|gm|manager|operations|ops)\b", re.I),   # a decision maker
-    re.compile(r"^(sales|business|bd|enquir\w*|inquir\w*|quote\w*)\b", re.I),             # people who answer buyers
-    re.compile(r"^(info|contact|hello|hi|office|admin|mail)\b", re.I),                     # the general inbox
+    re.compile(r"^(owner|founder|ceo|md|director|gm|manager|operations|ops)\b", re.IGNORECASE),   # a decision maker
+    re.compile(r"^(sales|business|bd|enquir\w*|inquir\w*|quote\w*)\b", re.IGNORECASE),             # people who answer buyers
+    re.compile(r"^(info|contact|hello|hi|office|admin|mail)\b", re.IGNORECASE),                     # the general inbox
 ]
-SUPPORT_INBOX = re.compile(r"(support|help|care|service|tracking|complain\w*|feedback|customer|claims?)", re.I)
+SUPPORT_INBOX = re.compile(r"(support|help|care|service|tracking|complain\w*|feedback|customer|claims?)", re.IGNORECASE)
 
 
 def _inbox_rank(email: str) -> int:

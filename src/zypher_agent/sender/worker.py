@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from zypher_agent.config import Settings
 from zypher_agent.db import Repository
 from zypher_agent.drafting.email import render_email, render_email_html
-from zypher_agent.guardrails.checks import check_draft
+from zypher_agent.guardrails.checks import check_for_step
 from zypher_agent.models import EmailDraft, Footer, Hypothesis, Lead, Message
 from zypher_agent.sender.policy import SendContext, decide
 from zypher_agent.sender.transport import (
@@ -100,7 +100,7 @@ class SendWorker:
             step=msg.step, company_already_contacted=self.repo.company_contacted(lead.company_id, lead.contact_id),
             sent_today=stats.sent_today, first_sent_at=stats.first_sent_at, last_sent_at=stats.last_sent_at,
             min_gap_seconds=self.rng.randint(*MIN_GAP_SECONDS), env_cap=self.settings.daily_send_cap,
-            sender_tz=self.sender_tz,
+            sender_tz=self.sender_tz, contact_status=lead.status,
         ))
         if decision.kind == "block":
             return self._block(msg, lead, decision.reason, summary)
@@ -128,7 +128,9 @@ class SendWorker:
     def _violations(self, msg: Message) -> list[str]:
         """Re-run today's guardrails on the stored draft: a rule tightened after approval still applies."""
         ev = msg.evidence
-        check = check_draft(EmailDraft(**ev["draft"]), [Hypothesis(**h) for h in ev["hypotheses"]], self.icp, self.footer)
+        check = check_for_step(
+            EmailDraft(**ev["draft"]), [Hypothesis(**h) for h in ev["hypotheses"]], self.icp, self.footer, msg.step
+        )
         return [v.rule for v in check.violations]
 
     def _send(self, msg: Message, lead: Lead, now: datetime, summary: SendSummary) -> None:

@@ -68,7 +68,7 @@ def test_forbidden_proof(phrase):
 
 
 def test_usr_not_named_in_first_touch():
-    assert "proof_in_first_touch" in rules(make(body=GOOD_BODY + " We built this for USR."))
+    assert "client_named" in rules(make(body=GOOD_BODY + " We built this for USR."))
 
 
 def test_proof_claim_rejected_in_first_touch_allowed_later():
@@ -197,3 +197,51 @@ def test_using_two_details_from_the_quote_passes():
     body = GOOD_BODY.replace("asks customers to email or WhatsApp you for every shipment quote",
                              "says you manage over 75,000 customs documents a year")
     assert "specific_detail" not in rules(make(body=body), hyps=[hyp])
+
+
+# ---------- follow-up kinds: each step has its own rules ----------
+
+def kind_rules(body, kind, claims=None, subject="quote requests"):
+    d = make(body=body, subject=subject, claims=claims if claims is not None else [Claim(text="x", evidence_id="h1")])
+    return {v.rule for v in check_draft(d, [HYP], ICP, FOOTER, kind=kind, allow_proof=(kind == "referral")).violations}
+
+
+NEW_ANGLE = ("I also noticed your team answers every WhatsApp enquiry by hand. Is each reply typed up from scratch? "
+             "If so, I can sketch how WhatsApp replies could be drafted automatically for your staff to check. "
+             "Would a one-page sketch of that help?")
+REFERRAL = ("Who looks after quotes and enquiries at your company? I would like to send that person a short note. "
+            "We built something similar for a Dubai company. Is it you, or someone else?")
+BREAKUP = ("This is my last note, so I will not keep emailing you. If a one-page sketch of automating your quotes "
+           "would help, reply 1. If the timing is wrong, reply 2. If you would rather not hear from me, reply 3. Thanks for reading.")
+
+
+def test_a_new_angle_follow_up_follows_the_first_touch_rules_but_may_be_shorter():
+    assert kind_rules(NEW_ANGLE, "new_angle") == set()
+    assert "ends_with_question" in kind_rules(NEW_ANGLE.replace("help?", "help."), "new_angle")
+    assert "no_evidence" in kind_rules(NEW_ANGLE, "new_angle", claims=[])
+
+
+def test_the_referral_step_needs_no_evidence_and_may_use_the_honest_proof_wording():
+    assert kind_rules(REFERRAL, "referral", claims=[]) == set()
+    assert "ends_with_question" in kind_rules(REFERRAL.replace("someone else?", "someone else."), "referral")
+    assert "client_named" in kind_rules(REFERRAL + " USR was the client.", "referral")
+
+
+def test_the_breakup_may_offer_numbered_replies_and_needs_no_question():
+    assert kind_rules(BREAKUP, "breakup", claims=[]) == set()
+    assert "unsupported_number" in kind_rules(BREAKUP.replace("reply 3", "reply 4"), "breakup", claims=[])
+    assert "call_request" in kind_rules(BREAKUP + " Happy to schedule a call.", "breakup", claims=[])
+
+
+def test_follow_ups_still_obey_the_universal_rules():
+    for kind, body in (("new_angle", NEW_ANGLE), ("referral", REFERRAL), ("breakup", BREAKUP)):
+        assert "banned_phrase" in kind_rules(body + " Truly game-changing.", kind, claims=[]), kind
+        assert "links" in kind_rules(body + " See acme.com", kind, claims=[]), kind
+        assert "pricing" in kind_rules(body + " Pricing is low.", kind, claims=[]), kind
+        assert "urgency" in kind_rules(body + " Act now.", kind, claims=[]), kind
+
+
+def test_client_names_come_from_config_not_code():
+    # the first touch must never name the client either; the name list lives in icp.yaml
+    assert "client_named" in rules(make(body=GOOD_BODY + " We built this for USR."))
+    assert "client_named" not in rules()

@@ -8,7 +8,7 @@ write is scoped to it, and ids belonging to another tenant behave as if they do
 not exist. Callers never pass a tenant per call, so it cannot be forgotten.
 """
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
 import psycopg
@@ -62,6 +62,11 @@ class Repository(Protocol):
     def sending_state(self) -> tuple[bool, str | None]: ...
     def set_sending_paused(self, paused: bool, reason: str | None = None) -> None: ...
     def first_message_header(self, contact_id: str) -> tuple[str, str] | None: ...
+    # follow-ups
+    def sequence_candidates(self) -> list[tuple[Lead, int, datetime]]: ...
+    def sent_messages(self, contact_id: str) -> list[Message]: ...
+    def cancel_unsent(self, contact_id: str, reason: str) -> int: ...
+    def has_event_since(self, contact_id: str, type: str, since: datetime) -> bool: ...
     # inbox
     def message_by_header(self, header: str) -> Message | None: ...
     def lead_by_email(self, email: str) -> Lead | None: ...
@@ -162,7 +167,7 @@ class PostgresRepo:
 
     _LEAD_SQL = """select c.id as contact_id, co.id as company_id, co.name as company_name,
                           co.domain, co.website, co.country, co.industry,
-                          c.full_name as contact_name, c.email, c.phone
+                          c.full_name as contact_name, c.email, c.phone, c.status::text as status
                    from contacts c join companies co on co.id = c.company_id
                    where c.tenant_id = %s and co.tenant_id = %s"""
 
@@ -345,6 +350,46 @@ class PostgresRepo:
         ).fetchone()
         return row is not None
 
+    def sequence_candidates(self) -> list[tuple[Lead, int, datetime]]:
+        """Leads mid-sequence with their last SENT step and when it left. Awaiting-approval follow-ups are excluded
+        because the lead's status is not 'in_sequence' while a card is open."""
+        rows = self._exec(
+            """select c.id as contact_id, co.id as company_id, co.name as company_name, co.domain, co.website,
+                      co.country, co.industry, c.full_name as contact_name, c.email, c.phone, c.status::text as status,
+                      last.step as last_step, last.sent_at as last_sent_at
+               from contacts c join companies co on co.id = c.company_id
+               join lateral (select step, sent_at from messages m where m.contact_id = c.id and m.direction = 'outbound'
+                             and m.sent_at is not null order by m.step desc limit 1) last on true
+               where c.tenant_id = %s and co.tenant_id = %s and c.status = 'in_sequence' order by last.sent_at""",
+            (self.tenant_id, self.tenant_id),
+        ).fetchall()
+        return [(self._lead(r), r["last_step"], r["last_sent_at"]) for r in rows]
+
+    def sent_messages(self, contact_id: str) -> list[Message]:
+        rows = self._exec(
+            """select * from messages where tenant_id = %s and contact_id = %s and direction = 'outbound'
+               and sent_at is not null order by step""",
+            (self.tenant_id, contact_id),
+        ).fetchall()
+        return [self._message(r) for r in rows]
+
+    def cancel_unsent(self, contact_id: str, reason: str) -> int:
+        """Withdraw every email to this contact that has not left yet (they replied, bounced or opted out)."""
+        rows = self._exec(
+            """update messages set status = 'rejected', last_error = %s
+               where tenant_id = %s and contact_id = %s and direction = 'outbound' and sent_at is null
+                 and status in ('draft', 'awaiting_approval', 'needs_changes', 'approved') returning id""",
+            (reason, self.tenant_id, contact_id),
+        ).fetchall()
+        return len(rows)
+
+    def has_event_since(self, contact_id: str, type: str, since: datetime) -> bool:
+        row = self._exec(
+            "select 1 from events where tenant_id = %s and contact_id = %s and type = %s and created_at >= %s limit 1",
+            (self.tenant_id, contact_id, type, since),
+        ).fetchone()
+        return row is not None
+
     def message_by_header(self, header: str) -> Message | None:
         r = self._exec(
             "select * from messages where tenant_id = %s and message_id_header = %s", (self.tenant_id, header)
@@ -508,7 +553,7 @@ class InMemoryRepo:
         return Lead(
             contact_id=c["id"], company_id=co["id"], company_name=co["name"], domain=co["domain"],
             website=co["website"], country=co["country"], industry=co["industry"],
-            contact_name=c["full_name"], email=c["email"], phone=c.get("phone"),
+            contact_name=c["full_name"], email=c["email"], phone=c.get("phone"), status=c["status"],
         )
 
     def company_exists(self, domain: str) -> bool:
@@ -620,6 +665,44 @@ class InMemoryRepo:
             for m in self.messages.values()
         )
 
+    def sequence_candidates(self) -> list[tuple[Lead, int, datetime]]:
+        out = []
+        for c in self.contacts.values():
+            if c["tenant_id"] != self.tenant_id or c["status"] != "in_sequence":
+                continue
+            sent = [m for m in self.messages.values()
+                    if m.contact_id == c["id"] and m.direction == "outbound" and m.sent_at is not None
+                    and self._store.message_tenant[m.id] == self.tenant_id]
+            if sent:
+                last = max(sent, key=lambda m: m.step)
+                out.append((self._lead(c), last.step, last.sent_at))
+        return sorted(out, key=lambda t: t[2])
+
+    def sent_messages(self, contact_id: str) -> list[Message]:
+        return sorted(
+            (m for m in self.messages.values()
+             if m.contact_id == contact_id and m.direction == "outbound" and m.sent_at is not None
+             and self._store.message_tenant[m.id] == self.tenant_id),
+            key=lambda m: m.step,
+        )
+
+    def cancel_unsent(self, contact_id: str, reason: str) -> int:
+        n = 0
+        for mid, m in list(self.messages.items()):
+            if (m.contact_id == contact_id and m.direction == "outbound" and m.sent_at is None
+                    and m.status in ("draft", "awaiting_approval", "needs_changes", "approved")
+                    and self._store.message_tenant[mid] == self.tenant_id):
+                self.messages[mid] = m.model_copy(update={"status": "rejected", "last_error": reason})
+                n += 1
+        return n
+
+    def has_event_since(self, contact_id: str, type: str, since: datetime) -> bool:
+        return any(
+            e["tenant_id"] == self.tenant_id and e["contact_id"] == contact_id and e["type"] == type
+            and e.get("at", datetime.now(since.tzinfo)) >= since
+            for e in self.events
+        )
+
     def message_by_header(self, header: str) -> Message | None:
         return next(
             (m for m in self.messages.values()
@@ -670,5 +753,5 @@ class InMemoryRepo:
     ) -> None:
         self.events.append(
             {"tenant_id": self.tenant_id, "type": type, "contact_id": contact_id,
-             "message_id": message_id, "actor": actor, "payload": payload or {}}
+             "message_id": message_id, "actor": actor, "payload": payload or {}, "at": datetime.now(UTC)}
         )

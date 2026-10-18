@@ -288,3 +288,25 @@ def test_classifier_errors_are_survivable(monkeypatch):
 
 def test_settings_defaults_do_not_enable_the_inbox_on_their_own():
     assert Settings(_env_file=None).imap_host == "imap.secureserver.net"
+
+
+def test_a_reply_withdraws_every_follow_up_that_has_not_gone_out_yet():
+    repo, box, proc, alerts, cid, m = world()
+    waiting = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b", step=2, status="awaiting_approval"))
+    approved = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b", step=3))
+    repo.update_message(approved.id, status="approved")
+    proc.run_once()
+    box.add(reply_mail("Interesting, tell me more."))
+    proc.run_once()
+    assert repo.get_message(waiting.id).status == "rejected" and repo.get_message(approved.id).status == "rejected"
+    assert repo.get_message(m.id).status == "sent"  # what already left is history, untouched
+    assert "2 unsent follow-up(s)" in alerts[-1]
+
+
+def test_a_bounce_also_withdraws_unsent_follow_ups():
+    repo, box, proc, alerts, cid, m = world()
+    waiting = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b", step=2, status="awaiting_approval"))
+    proc.run_once()
+    box.add(bounce_mail())
+    proc.run_once()
+    assert repo.get_message(waiting.id).status == "rejected"

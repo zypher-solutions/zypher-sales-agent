@@ -1,6 +1,5 @@
 """Domain models shared across modules. These are the contracts between agents."""
 from datetime import datetime
-from datetime import datetime
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
@@ -19,6 +18,7 @@ class Lead(BaseModel):
     contact_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    status: str = "new"  # where the lead is in the pipeline (contacts.status)
 
 
 class Hypothesis(BaseModel):

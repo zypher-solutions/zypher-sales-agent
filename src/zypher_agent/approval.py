@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from zypher_agent.config import Icp
 from zypher_agent.db import Repository
 from zypher_agent.drafting.email import evidence_for, generate
-from zypher_agent.guardrails.checks import check_draft
+from zypher_agent.guardrails.checks import check_for_step
 from zypher_agent.leads import clean_email, normalize_domain
 from zypher_agent.llm import LLM, LLMError
 from zypher_agent.models import EmailDraft, Footer, Hypothesis, Lead, Message
@@ -200,7 +200,9 @@ class ApprovalService:
             # Reject means "this DRAFT is not good", not "never contact this company": the lead goes back to
             # be redrafted on the next run. To drop a company for good, use /suppress with its domain.
             self.repo.update_message(msg.id, status="rejected")
-            self.repo.set_lead_status(lead.contact_id, "researched")
+            # A rejected FIRST email is redrafted. A rejected follow-up returns the lead to its sequence, so the
+            # scheduler writes a fresh follow-up: it must never restart at step 1 for someone already emailed.
+            self.repo.set_lead_status(lead.contact_id, "researched" if msg.step == 1 else "in_sequence")
             self.repo.log_event("rejected", contact_id=lead.contact_id, message_id=msg.id, actor=actor, payload={"version": msg.version})
             self.notifier.edit(
                 chat_id, tg_msg_id,
@@ -238,7 +240,10 @@ class ApprovalService:
         report = self.repo.latest_research(lead.company_id)
         self.notifier.send(chat_id, "✏️ Redrafting…")
         try:
-            result = generate(lead, report, self.icp, self.llm, self.footer, previous=EmailDraft(**msg.evidence["draft"]), feedback=text)
+            result = generate(
+                lead, report, self.icp, self.llm, self.footer, previous=EmailDraft(**msg.evidence["draft"]),
+                feedback=text, step=msg.step, sent=self._history(msg),
+            )
         except LLMError as e:
             self.repo.log_event("redraft_failed", contact_id=lead.contact_id, message_id=msg.id, actor=f"human:{user}", payload={"error": str(e)})
             self.notifier.send(chat_id, f"Redraft failed ({e}). Send your feedback again.")
@@ -274,7 +279,7 @@ class ApprovalService:
             if report is None:
                 continue
             try:
-                result = generate(lead, report, self.icp, self.llm, self.footer)
+                result = generate(lead, report, self.icp, self.llm, self.footer, step=msg.step, sent=self._history(msg))
             except LLMError as e:
                 self.repo.log_event("refresh_failed", contact_id=lead.contact_id, message_id=msg.id, payload={"error": str(e)})
                 continue
@@ -298,6 +303,10 @@ class ApprovalService:
             self._send_card(new, lead)
             count += 1
         return count
+
+    def _history(self, msg: Message) -> list[tuple[int, str, str]]:
+        """Earlier emails of this sequence, so a redrafted follow-up still adds something new."""
+        return [(m.step, m.subject, m.body) for m in self.repo.sent_messages(msg.contact_id)]
 
     def alert(self, text: str) -> None:
         """Tell the owner something that needs attention (bounce, failed send, paused sending)."""
@@ -336,6 +345,6 @@ class ApprovalService:
 
     def _recheck(self, msg: Message):
         ev = msg.evidence
-        return check_draft(
-            EmailDraft(**ev["draft"]), [Hypothesis(**h) for h in ev["hypotheses"]], self.icp, self.footer
+        return check_for_step(
+            EmailDraft(**ev["draft"]), [Hypothesis(**h) for h in ev["hypotheses"]], self.icp, self.footer, msg.step
         )

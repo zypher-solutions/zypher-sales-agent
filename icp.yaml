@@ -66,6 +66,7 @@ proof_points:
     relationship: "owned by the founder's brother"
     disclose_if_asked: true
     may_name_client: false      # TODO: confirm with USR owner before naming in emails
+    never_name: [USR]           # the guardrails reject these words in any email while may_name_client is false
     safe_wording: "a Dubai company we built it for"
     details_needed: [what was automated, before vs after, measured time/error savings, screenshots or demo OK to share]
     allowed_metrics: []         # add only verified, real numbers
@@ -110,3 +111,26 @@ offers:
     value_statement: We take over a company's branding, or rebrand it end to end.
     avoid_patterns:
       - '\brebrand(ing)?\b|\bbrand identity\b|\blogo\b|\bbranding\b'
+
+# The follow-up sequence after the first touch. `kind` selects the platform rules that apply (what the email
+# must contain), `angle` tells the writer what is new in this step. Delays count working days in the LEAD's
+# country after the previous email was sent. Every step needs the owner's approval while autonomy level is 0.
+sequence:
+  - step: 2
+    kind: new_angle
+    delay_business_days: 3
+    angle: >
+      A DIFFERENT observation about their business than the first email used (use another evidence item).
+      Add one new idea only. Do not repeat or refer to the first email's wording.
+  - step: 3
+    kind: referral
+    delay_business_days: 5
+    angle: >
+      Ask who at the company looks after this kind of work, in one easy question. You may add one short
+      sentence of our honest proof wording ("a Dubai company we built it for") and nothing else about results.
+  - step: 4
+    kind: breakup
+    delay_business_days: 9
+    angle: >
+      A short, kind last note: say this is the last email, and offer three one-character replies:
+      1 = interested, 2 = not now, 3 = please stop. Then leave the door open. Do not ask a question.

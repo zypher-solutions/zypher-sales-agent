@@ -325,3 +325,41 @@ def test_inbox_matching_is_tenant_scoped(two_tenants):
     m = a.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
     a.update_message(m.id, status="sent", sent_at=datetime(2026, 10, 20, tzinfo=timezone.utc), message_id_header=header)
     assert b.message_by_header(header) is None and b.lead_by_email(a.get_lead(cid).email) is None and b.recent_sent(100) == []
+
+
+# --- follow-up queries ---
+
+def test_follow_up_queries(repo):
+    from datetime import datetime, timedelta, timezone
+    t0 = datetime(2026, 10, 20, 6, 0, tzinfo=timezone.utc)
+    cid, _ = new_lead(repo)
+    first = repo.save_message(NewMessage(contact_id=cid, subject="s1", body="b1"))
+    repo.update_message(first.id, status="sent", sent_at=t0, message_id_header=f"<{uuid.uuid4().hex}@x.test>")
+    assert cid not in [lead.contact_id for lead, _, _ in repo.sequence_candidates()]  # status is not in_sequence yet
+    repo.set_lead_status(cid, "in_sequence")
+    mine = [(lead, step, at) for lead, step, at in repo.sequence_candidates() if lead.contact_id == cid]
+    assert len(mine) == 1 and mine[0][1] == 1 and mine[0][2] == t0 and mine[0][0].status == "in_sequence"
+
+    second = repo.save_message(NewMessage(contact_id=cid, subject="s2", body="b2", step=2))
+    repo.update_message(second.id, status="sent", sent_at=t0 + timedelta(days=5))
+    assert [(s, m.step) for lead, s, _ in repo.sequence_candidates() if lead.contact_id == cid for m in [second]] == [(2, 2)]
+    assert [m.step for m in repo.sent_messages(cid)] == [1, 2]
+
+    # unsent mail to this contact is withdrawn; sent mail is history
+    waiting = repo.save_message(NewMessage(contact_id=cid, subject="s3", body="b3", step=3, status="awaiting_approval"))
+    approved = repo.save_message(NewMessage(contact_id=cid, subject="s3", body="b3", step=3))
+    repo.update_message(approved.id, status="approved")
+    assert repo.cancel_unsent(cid, "contact replied") == 2
+    assert repo.get_message(waiting.id).status == "rejected" and repo.get_message(approved.id).status == "rejected"
+    assert repo.get_message(second.id).status == "sent" and repo.cancel_unsent(cid, "again") == 0
+
+
+def test_has_event_since(repo):
+    from datetime import datetime, timedelta, timezone
+    cid, _ = new_lead(repo)
+    now = datetime.now(timezone.utc)
+    assert repo.has_event_since(cid, "out_of_office", now - timedelta(days=7)) is False
+    repo.log_event("out_of_office", contact_id=cid, payload={})
+    assert repo.has_event_since(cid, "out_of_office", now - timedelta(days=7)) is True
+    assert repo.has_event_since(cid, "out_of_office", now + timedelta(days=1)) is False
+    assert repo.has_event_since(cid, "replied", now - timedelta(days=7)) is False

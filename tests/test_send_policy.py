@@ -187,3 +187,24 @@ def test_naive_datetimes_are_refused():
 
 def test_local_window_start_helper():
     assert local_window_start(DUBAI, {0, 1, 2, 3, 4}, at(DUBAI, 2026, 10, 20, 8)) == at(DUBAI, 2026, 10, 20, 9)
+
+
+# ---------- follow-up timing: working days in the lead's own country ----------
+
+def test_business_days_skip_the_leads_weekend():
+    from zypher_agent.sender.policy import business_days_since
+    tue = at(DUBAI, 2026, 10, 20, 10)
+    assert business_days_since(tue, at(DUBAI, 2026, 10, 23, 9), "UAE") == 3      # Wed, Thu, Fri
+    thu = at(DUBAI, 2026, 10, 22, 10)
+    assert business_days_since(thu, at(DUBAI, 2026, 10, 26, 9), "UAE") == 2      # Fri, (Sat, Sun skipped), Mon
+    assert business_days_since(thu, at(DOHA, 2026, 10, 25, 9), "Qatar") == 1     # Qatar works Sunday, rests Fri-Sat
+    assert business_days_since(tue, tue, "UAE") == 0
+    assert business_days_since(tue, tue, "Atlantis") is None
+
+
+def test_the_clock_that_counts_is_the_leads_not_ours():
+    from zypher_agent.sender.policy import business_days_since
+    # 23:30 Tuesday in Dubai is already Wednesday in Kolkata... no: Kolkata is 1.5h BEHIND Dubai, so still Tuesday there
+    sent = at(DUBAI, 2026, 10, 20, 23, 30)
+    assert business_days_since(sent, at(DUBAI, 2026, 10, 21, 0, 30), "UAE") == 1      # past midnight in Dubai
+    assert business_days_since(sent, at(DUBAI, 2026, 10, 21, 0, 30), "India") == 0    # still the same day in India

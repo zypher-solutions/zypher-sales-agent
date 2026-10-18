@@ -42,7 +42,11 @@ def _live(settings: Settings):
 
 def _source(settings: Settings, args) -> int:
     from zypher_agent.db import PostgresRepo
-    from zypher_agent.sources.apify_maps import ApifyMapsSource, SourceError, estimate_cost_usd
+    from zypher_agent.sources.apify_maps import (
+        ApifyMapsSource,
+        SourceError,
+        estimate_cost_usd,
+    )
     from zypher_agent.sources.base import import_sourced
 
     _require(settings, "apify_token", *([] if args.preview else ["database_url"]))
@@ -110,7 +114,12 @@ def _status(settings: Settings) -> int:
 def _testmail(settings: Settings, to: str) -> int:
     """One real email, to a mailbox the owner controls, containing no lead data. Not subject to the lead rules."""
     from zypher_agent.leads import clean_email
-    from zypher_agent.sender.transport import OutgoingEmail, SendError, SMTPTransport, new_message_id
+    from zypher_agent.sender.transport import (
+        OutgoingEmail,
+        SendError,
+        SMTPTransport,
+        new_message_id,
+    )
 
     address = clean_email(to)
     if address is None:
@@ -190,6 +199,13 @@ def _send(settings: Settings, loop: bool) -> int:
 
     worker = SendWorker(repo, SMTPTransport(settings), settings, footer, icp, alert=alert)
     inbox = _inbox_processor(settings, repo, alert)
+    followups = None
+    if loop:  # the long-running worker also writes follow-ups when they fall due; they still wait for your approval
+        try:
+            followups = _live(settings)[0]
+        except SystemExit:
+            print("(follow-up drafting is off: the model, database or Telegram settings are incomplete)")
+    cycle = 0
     if settings.send_allowlist:
         print(f"TEST MODE: only these recipients can receive email: {settings.send_allowlist}")
     while True:
@@ -204,6 +220,14 @@ def _send(settings: Settings, loop: bool) -> int:
                 return 1
             time.sleep(60)
             continue
+        if followups is not None and cycle % 30 == 0:  # about every 30 minutes
+            try:
+                fs = followups.run_followups(limit=5)
+                if fs.followups or fs.completed:
+                    print(f"[{stamp}] follow-ups drafted for your approval: {fs.followups} (sequences finished: {fs.completed})")
+            except Exception as e:  # noqa: BLE001 - drafting trouble must not stop the sending worker
+                print(f"[{stamp}] follow-up drafting failed ({type(e).__name__}); will retry")
+        cycle += 1
         s = worker.run_once()
         if s.paused:
             print(f"[{stamp}] sending is PAUSED: {s.paused}")
@@ -238,7 +262,7 @@ def _preflight(settings: Settings) -> int:
 def _print_summary(s) -> None:
     print(
         f"\nResearched: {s.researched} | disqualified: {s.disqualified} | drafted: {s.drafted} | "
-        f"sent to Telegram for approval: {s.delivered} | no usable email: {s.no_email} | "
+        f"sent to Telegram for approval: {s.delivered} | follow-ups drafted: {s.followups} | no usable email: {s.no_email} | "
         f"skipped (opted out): {s.suppressed} | failed: {len(s.failed)}"
     )
     for f in s.failed:
@@ -293,6 +317,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         for out in transport.sent:
             print(f"  WOULD SEND to {out.to}: {out.subject}  (fake server: nothing really left this PC)")
+        from zypher_agent.dry_run import simulate_followups
+
+        print("\nFollow-ups, if nobody replies (simulated days later; each would need your approval):")
+        for when, summary in simulate_followups(dry):
+            print(f"  {when}: {summary}")
         return 0
 
     settings = Settings()

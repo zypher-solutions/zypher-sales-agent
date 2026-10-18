@@ -38,11 +38,7 @@ URGENCY = re.compile(
 # Words too common on any business website to show we read THEIRS. A draft must share at least
 # MIN_SHARED_DETAIL other words (or numbers) with the quotes it cites, or it is the same email for everyone.
 GENERIC_WORDS = set(
-    "about their there which would could should these those where while other every using please contact quote "
-    "quotes request requests form forms free customers customer client clients services service solutions solution "
-    "company business team teams process manually manual email phone website online check great sorry hours today "
-    "follow tools tool system systems existing sketch page pages enquiries enquiry details information offer "
-    "modes provide provides quality support".split()
+    ["about", "their", "there", "which", "would", "could", "should", "these", "those", "where", "while", "other", "every", "using", "please", "contact", "quote", "quotes", "request", "requests", "form", "forms", "free", "customers", "customer", "client", "clients", "services", "service", "solutions", "solution", "company", "business", "team", "teams", "process", "manually", "manual", "email", "phone", "website", "online", "check", "great", "sorry", "hours", "today", "follow", "tools", "tool", "system", "systems", "existing", "sketch", "page", "pages", "enquiries", "enquiry", "details", "information", "offer", "modes", "provide", "provides", "quality", "support"]
 )
 MIN_SHARED_DETAIL = 2
 WORD = re.compile(r"[a-z]{5,}|\d{2,}")
@@ -62,8 +58,29 @@ SIGN_OFF = re.compile(r"\b(best regards|kind regards|regards|sincerely|best wish
 NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 
+# What each kind of email must contain. Platform rules: a tenant cannot loosen them.
+#   words: allowed body length (None = the configured first-touch range)   evidence: must cite stored research
+#   question: must end with a question                                       numerals: whole numbers 1-3 allowed
+KIND_RULES = {
+    "first_touch": {"words": None, "evidence": True, "question": True, "numerals": set()},
+    "new_angle": {"words": (40, 80), "evidence": True, "question": True, "numerals": set()},
+    "referral": {"words": (25, 70), "evidence": False, "question": True, "numerals": set()},
+    "breakup": {"words": (25, 70), "evidence": False, "question": False, "numerals": {"1", "2", "3"}},
+}
+
+
 def _numbers(text: str) -> set[str]:
     return set(NUMBER.findall(text))
+
+
+def check_for_step(
+    draft: EmailDraft, hypotheses: list[Hypothesis], icp: Icp, footer: Footer, step: int
+) -> GuardrailResult:
+    """The one way the rest of the system checks a draft: the rules of its own step (first touch, follow-up kinds)."""
+    from zypher_agent.config import kind_for_step
+
+    kind = kind_for_step(icp, step)
+    return check_draft(draft, hypotheses, icp, footer, kind=kind, allow_proof=kind == "referral")
 
 
 def footer_problems(footer: Footer) -> list[str]:
@@ -82,8 +99,10 @@ def check_draft(
     footer: Footer,
     *,
     allow_proof: bool = False,
+    kind: str = "first_touch",
 ) -> GuardrailResult:
-    """Check a draft against icp.yaml rules. `allow_proof=False` is the first-touch setting."""
+    """Check a draft against icp.yaml rules. `kind` picks the rules of that step; `allow_proof=False` is the first-touch setting."""
+    kr = KIND_RULES[kind]
     v: list[Violation] = []
 
     def fail(rule: str, detail: str) -> None:
@@ -96,7 +115,7 @@ def check_draft(
 
     # length
     words = len(body.split())
-    lo, hi = rules.email_word_range
+    lo, hi = kr["words"] or rules.email_word_range
     if not lo <= words <= hi:
         fail("word_count", f"{words} words, must be {lo}-{hi}")
 
@@ -107,11 +126,14 @@ def check_draft(
     for phrase in FORBIDDEN_PROOF_PHRASES:
         if phrase in lowered:
             fail("forbidden_proof", phrase)
-    if not allow_proof and re.search(r"\busr\b", lowered):
-        fail("proof_in_first_touch", "names USR; proof is omitted from the first touch")
+    for p in icp.proof_points:  # client names come from icp.yaml, never from code
+        if not p.may_name_client:
+            for name in p.never_name:
+                if re.search(rf"\b{re.escape(name.lower())}\b", lowered):
+                    fail("client_named", f"{name} may not be named in any email")
 
     # numbers: only the CTA's, allowed metrics, and figures quoted from the lead's own site
-    allowed = _numbers(str(icp.offer.get("first_touch_cta", "")))
+    allowed = _numbers(str(icp.offer.get("first_touch_cta", ""))) | set(kr["numerals"])
     for p in icp.proof_points:
         for metric in p.allowed_metrics:
             allowed |= _numbers(metric)
@@ -140,7 +162,7 @@ def check_draft(
     # evidence: every claim must point at stored evidence
     known = {h.id for h in hypotheses}
     proof_ids = {p.id for p in icp.proof_points}
-    if not any(c.evidence_id in known for c in draft.claims):
+    if kr["evidence"] and not any(c.evidence_id in known for c in draft.claims):
         fail("no_evidence", "needs at least one claim backed by a research hypothesis")
     for c in draft.claims:
         if c.evidence_id in proof_ids and not allow_proof:
@@ -154,13 +176,13 @@ def check_draft(
         w for h in hypotheses if h.id in cited for w in WORD.findall(h.quote.lower()) if w not in GENERIC_WORDS
     }
     shared = quote_words & {w for w in WORD.findall(body.lower()) if w not in GENERIC_WORDS}
-    if quote_words and len(shared) < min(MIN_SHARED_DETAIL, len(quote_words)):  # never demand more than the quote has
+    if kr["evidence"] and quote_words and len(shared) < min(MIN_SHARED_DETAIL, len(quote_words)):  # never demand more than the quote has
         hints = ", ".join(sorted(quote_words, key=len, reverse=True)[:6])
         fail("specific_detail", f"mention a concrete detail from your cited evidence, such as: {hints}")
 
     # tone and structure
     stripped = body.rstrip()
-    if not stripped.endswith("?"):
+    if kr["question"] and not stripped.endswith("?"):
         fail("ends_with_question", "the email must end with one easy question")
     if stripped.count("?") > 2:
         fail("single_ask", "at most two questions: the observation and the ask")
@@ -170,7 +192,7 @@ def check_draft(
         fail("links", "no links or web addresses in a first touch")
     if URGENCY.search(text):
         fail("urgency", "no urgency or scarcity language")
-    if not HEDGES.search(body):
+    if kr["evidence"] and not HEDGES.search(body):
         fail("hypothesis_style", "hypothesis must be phrased as a question or likelihood")
     if GREETING.search(body) or SIGN_OFF.search(body):
         fail("body_wrapper", "body must not contain a greeting or sign-off; code adds them")

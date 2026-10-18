@@ -11,6 +11,7 @@ safety mechanism visibly fires:
 """
 import re
 from dataclasses import dataclass
+from datetime import UTC
 
 from zypher_agent.approval import ApprovalService, ConsoleNotifier
 from zypher_agent.config import REPO_ROOT, Icp, load_icp
@@ -115,6 +116,34 @@ CLINIC_BODY = (
 )
 
 
+FOLLOWUPS = {
+    2: EmailDraft(
+        subject="shipment paperwork",
+        body=("I also noticed you are hiring an operations coordinator for shipment documentation. Is that role mostly "
+              "retyping the same shipment details into different forms? If so, the same sketch idea could cover those "
+              "documents too, so the new hire starts on real work. Would a one-page sketch for that help?"),
+        claims=[Claim(text="hiring an operations coordinator for shipment documentation", evidence_id="h2")],
+    ),
+    3: EmailDraft(
+        subject="who handles this",
+        body=("Who looks after quotes and shipment paperwork at your company? I would like to send that person a short "
+              "note. We built something similar for a Dubai company. Is it you, or someone else?"),
+        claims=[],
+    ),
+    4: EmailDraft(
+        subject="last note",
+        body=("This is my last note, so I will not keep emailing you. If a one-page sketch of automating your quotes would "
+              "help, reply 1. If the timing is wrong, reply 2. If you would rather not hear from me, reply 3. Thanks for reading."),
+        claims=[],
+    ),
+}
+
+
+def _followup(system: str, user: str) -> EmailDraft:
+    step = int(re.search(r"email number (\d+)", system).group(1)) + 1  # "follow-up email number N (this is email N+1)"
+    return FOLLOWUPS[step]
+
+
 def _domain(user: str) -> str:
     return re.search(r"Domain: (\S+)", user).group(1)
 
@@ -149,7 +178,7 @@ def build(echo: bool = True, icp: Icp | None = None) -> DryRun:
             ContactIn(full_name=contact, email=email),
         )
     llm = MockLLM(repo, {
-        "research": lambda s, u: RESEARCH[_domain(u)], "draft": _draft, "redraft": _redraft,
+        "research": lambda s, u: RESEARCH[_domain(u)], "draft": _draft, "redraft": _redraft, "followup": _followup,
     })
     service = ApprovalService(repo, llm, icp, DRY_FOOTER, notifier, [OWNER_ID])
     return DryRun(repo, notifier, llm, service, Pipeline(repo, FakeFetcher(SITES), llm, icp, DRY_FOOTER, service, email_ok=lambda e: True))
@@ -188,10 +217,43 @@ def run_dry_run(echo: bool = True, limit: int = 10) -> tuple[DryRun, RunSummary]
     return run, summary
 
 
+def simulate_followups(run: DryRun) -> list[tuple[str, str]]:
+    """Fast-forward through the sequence: approve and send each follow-up the moment it is due."""
+    import random
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from zypher_agent.config import Settings
+    from zypher_agent.sender.transport import FakeTransport
+    from zypher_agent.sender.worker import SendWorker
+
+    out = []
+    tz = ZoneInfo("Asia/Dubai")
+    now = datetime(2026, 10, 20, 10, 40, tzinfo=tz).astimezone(UTC)  # just after the first email went out
+    worker = SendWorker(run.repo, FakeTransport(), Settings(_env_file=None, sending_enabled=True), DRY_FOOTER,
+                        run.pipeline.icp, rng=random.Random(0))
+    for days in (7, 7, 14, 7):  # same weekday and hour each time, so the send window is open when each step is due
+        now += timedelta(days=days)
+        before = {m.id for m in run.repo.messages.values()}
+        run.pipeline.run_followups(now=now)
+        new = [m for m in run.repo.messages.values() if m.id not in before]
+        for m in new:
+            when = now.astimezone(tz).strftime("%a %d %b")
+            out.append((when, f"email {m.step} drafted -> \"{m.subject}\" ({len(m.body.split())} words incl. signature)"))
+            run.repo.update_message(m.id, status="approved")
+            run.repo.log_event("approved", contact_id=m.contact_id, message_id=m.id, actor="human:dry-run", payload={"version": m.version})
+            worker.run_once(now)
+            out.append((when, f"   you approve it; it is sent as a reply in the same thread (status {run.repo.get_message(m.id).status})"))
+    done = [e for e in run.repo.events if e["type"] == "sequence_complete"]
+    if done:
+        out.append(("then", "sequence finished: the lead is left alone (status nurture)"))
+    return out
+
+
 def simulate_sending(run: DryRun):
     """Run the real send worker against a fake mail server, at a moment inside the UAE business window."""
     import random
-    from datetime import datetime, timezone
+    from datetime import datetime
     from zoneinfo import ZoneInfo
 
     from zypher_agent.config import Settings
@@ -201,6 +263,6 @@ def simulate_sending(run: DryRun):
     transport = FakeTransport()
     settings = Settings(_env_file=None, sending_enabled=True)
     worker = SendWorker(run.repo, transport, settings, DRY_FOOTER, run.pipeline.icp, rng=random.Random(0))
-    tuesday_10am_dubai = datetime(2026, 10, 20, 10, 0, tzinfo=ZoneInfo("Asia/Dubai")).astimezone(timezone.utc)
+    tuesday_10am_dubai = datetime(2026, 10, 20, 10, 0, tzinfo=ZoneInfo("Asia/Dubai")).astimezone(UTC)
     summary = worker.run_once(tuesday_10am_dubai)
     return summary, transport
