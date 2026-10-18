@@ -31,6 +31,11 @@ HELP = (
 )
 
 
+EMAIL_BANNER = "━━━ THE EMAIL (everything between the lines is what they receive) ━━━"
+END_BANNER = "━━━ END OF EMAIL ━━━"
+NOTES_BANNER = "📝 ONLY FOR YOU, NOT SENT: why the draft says what it says"
+
+
 class Button(BaseModel):
     text: str
     data: str
@@ -78,14 +83,15 @@ def format_card(msg: Message, lead: Lead) -> str:
     head = f"📧 Draft v{msg.version} · {lead.company_name} ({lead.domain})\nTo: {lead.contact_name or 'there'} <{lead.email}>"
     if lead.phone:  # for a follow-up call or WhatsApp by a human
         head += f"\nPhone: {lead.phone}"
-    mail = f"Subject: {msg.subject}\n\n{msg.body}"
+    # The card has two zones. Only the first is sent to the lead; the second is the reviewer's notes.
+    mail = f"{EMAIL_BANNER}\nSubject: {msg.subject}\n\n{msg.body}\n{END_BANNER}"
 
     def evidence(quotes: bool) -> str:
         lines = []
         for h in ev["hypotheses"]:
             line = f"{h['id']} ({h['confidence']}): {h['hypothesis']}"
             lines.append(line + (f"\n   “{h['quote']}” — {h['source_url']}" if quotes else ""))
-        return "Evidence:\n" + "\n".join(lines)
+        return f"{NOTES_BANNER}\nEvidence:\n" + "\n".join(lines)
 
     for with_quotes in (True, False):
         text = "\n\n".join([head, status, mail, evidence(with_quotes)])

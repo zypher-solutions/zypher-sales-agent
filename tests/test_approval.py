@@ -262,3 +262,13 @@ def test_refresh_keeps_going_when_the_model_fails():
     service.llm = MockLLM(repo, {})  # no "draft" response: raises LLMError
     assert service.refresh_pending() == 0
     assert repo.get_message(msg.id).version == 1 and repo.events[-1]["type"] == "refresh_failed"
+
+
+def test_card_separates_the_email_from_the_reviewers_notes():
+    from zypher_agent.approval import END_BANNER, NOTES_BANNER
+    _, notifier, _, msg, _ = world()
+    text = notifier.sent[-1]["text"]
+    email = text[text.index("THE EMAIL"):text.index(END_BANNER)]
+    assert "Subject:" in email and FOOTER.postal_address in email  # the footer is part of what is sent
+    assert "Evidence:" not in email and "Phone" not in email and "Passed all checks" not in email
+    assert text.index(END_BANNER) < text.index(NOTES_BANNER) < text.index("Evidence:")
