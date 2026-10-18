@@ -39,5 +39,24 @@ An AI outbound sales agent. Built first for **Zypher Software Solutions LLP** (K
 - LinkedIn is human-sent; WhatsApp only via approved Business API templates.
 - Any reply that is not a clear negative goes to a human.
 
+## Commands (Windows, PowerShell)
+- Tests: `.\.venv\Scripts\python.exe -m pytest -q` (the global Python lacks the package; always use the venv)
+- Lint: `.\.venv\Scripts\python.exe -m ruff check .`
+- Dry run (no keys, no cost): `.\.venv\Scripts\python.exe -m zypher_agent --help` for current subcommands
+
+## How we work (SDLC)
+The owner is new to code and uses Claude as guide. For every non-trivial task:
+1. **Plan first**: short plan, files touched, risks, open questions. Wait for a go-ahead on anything that changes schema, config shape, or guardrails.
+2. **Small steps**: one concern per commit, tests written with or before the code (guardrails and anything touching sending: tests first).
+3. **Verify**: run tests and lint, and run the dry run for pipeline changes. Report failures plainly.
+4. **Review**: before a phase is called done, run a code review and a security review on the diff.
+5. **Document**: update README roadmap, this file, and `docs/` when behavior or setup changes. Record non-obvious decisions in `docs/decisions.md` (what, why, trade-off).
+6. **Commit** only when asked, with a clear message. Never commit `.env`, lead data, or `docs/legacy/`.
+- Explain new concepts (modes, skills, plugins, agents) in two or three plain sentences the first time they come up; do not assume prior knowledge.
+- Suggest the right skill or plugin when one fits, and say why, before using it.
+
+## Definition of done
+Tests pass, lint clean, no secrets or lead data in the diff, no Zypher-specific text in code or prompts, migrations mirrored in `schema.sql`, docs updated.
+
 ## Current phase
 Phase 1 code complete (research, drafting, guardrails, Telegram approval). Next: Phase 2 (sender module, queue, follow-ups), starting with the `tenant_id` migration. Roadmap in README.md.
