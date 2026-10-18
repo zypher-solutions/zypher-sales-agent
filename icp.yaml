@@ -1,5 +1,5 @@
 # Ideal Customer Profile and offer (v2). The agents read this file.
-version: 3
+version: 4
 
 company:
   name: Zypher Software Solutions LLP
@@ -9,15 +9,17 @@ company:
     repetitive workflows, and automate them (CRM/Slack/Notion/WhatsApp/ERP
     integrations, AI agents, internal tools).
   primary_service: business-process automation
-  secondary_services: [websites, mobile apps, CRM/ERP/POS/custom software]
+  secondary_services: [websites, mobile apps, CRM/ERP/POS/custom software, branding and rebranding]
 
 strategy:
   model: land_and_expand
-  goal_of_outreach: book a discovery call (15-20 min) to understand their workflow
+  goal_of_outreach: get a reply, then book a discovery call (15-20 min) to understand their workflow
   first_touch_rule: >
-    Pitch ONLY the workflow call. Never pitch websites or software in the
-    first email. Gaps in websites/software are found during the call and
-    proposed after the automation work is agreed.
+    Pitch ONLY the first-touch offer (see offers). Never mention the other offers.
+    Do not ask for a call or a meeting. Open with one specific observation about their
+    business, then ask one easy yes/no question that offers a one-page sketch of how it
+    could be improved, with no call needed. The call comes after they reply. Gaps found in
+    other areas (website, branding, software) are raised during the call, never in email.
   discovery_call_outputs: [workflow map, time/cost waste estimate, gaps in web/software]
 
 target:
@@ -46,6 +48,7 @@ buyer_personas:
   - head of sales
 
 offer:
+  first_touch_cta: "Offer to send a one-page sketch of how the workflow could be automated, no call needed"
   primary_cta: "Free discovery call (15-20 min), no commitment, to understand how your business runs today"
   value_claims_allowed:        # qualitative only, until we have measured results
     - saves staff time on repetitive work
@@ -75,9 +78,35 @@ forbidden_proof:
   - phrases like "our clients", "we have helped companies", "proven results" (we have one deployment)
 
 messaging_rules:
-  email_word_range: [60, 100]
+  email_word_range: [50, 80]
   tone: plain, human, specific, no hype
   must_include: [one specific observation about THEIR workflow, one low-friction CTA, opt-out line]
   never_say: ["I hope this email finds you well", "revolutionary", "game-changing", "guarantee", "boost your digital presence"]
   never_claim: [clients, revenue, time-saved numbers or results not in proof_points]
   hypothesis_style: "phrase as a question or likelihood, not as a fact about their business"
+
+# What the business sells. Exactly one is pitched in a first touch; the rest wait for the call.
+# Written as "we do X through Y so that Z". avoid_patterns are regexes the guardrails reject in a first touch.
+offers:
+  - id: automation
+    name: Business-process automation
+    first_touch: true
+    evidence_focus: manual, repetitive workflows
+    value_statement: >
+      We replace repetitive manual work (retyping enquiries, chasing follow-ups, building quotes,
+      copying data between tools) with automations and AI agents connected to the tools you already
+      use, so your team stops doing it by hand and you do not need to hire for it.
+  - id: software
+    name: Websites, apps and custom software (CRM, ERP, POS)
+    first_touch: false
+    value_statement: We build the websites, apps and CRM/ERP systems a business needs.
+    avoid_patterns:
+      - 'redesign|new website|website development|web development|app development'
+      - 'build (you |your )?(a |an |the )?(new )?(website|site|app|mobile app)'
+      - 'rebuild (your |the )?(website|site)'
+  - id: branding
+    name: Branding and rebranding
+    first_touch: false
+    value_statement: We take over a company's branding, or rebrand it end to end.
+    avoid_patterns:
+      - '\brebrand(ing)?\b|\bbrand identity\b|\blogo\b|\bbranding\b'

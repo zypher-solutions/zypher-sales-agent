@@ -16,7 +16,13 @@ from psycopg.types.json import Jsonb
 
 from zypher_agent.config import DEFAULT_TENANT_ID
 from zypher_agent.models import (
-    CompanyIn, ContactIn, Hypothesis, Lead, Message, NewMessage, ResearchReport,
+    CompanyIn,
+    ContactIn,
+    Hypothesis,
+    Lead,
+    Message,
+    NewMessage,
+    ResearchReport,
 )
 
 # Columns update_message may touch. Whitelisted because they become SQL identifiers.
@@ -55,13 +61,30 @@ def _check_fields(fields: dict) -> None:
 
 class PostgresRepo:
     def __init__(self, dsn: str, tenant_id: str = DEFAULT_TENANT_ID) -> None:
-        self.tenant_id = tenant_id
+        self.tenant_id, self._dsn = tenant_id, dsn
+        self.conn = self._connect()
+
+    def _connect(self) -> psycopg.Connection:
         # prepare_threshold=None: Supabase's pooler (transaction mode) rejects prepared statements.
-        self.conn = psycopg.connect(dsn, autocommit=True, row_factory=dict_row, prepare_threshold=None)
+        # TCP keepalives stop idle connections being silently dropped while the bot waits for taps.
+        return psycopg.connect(
+            self._dsn, autocommit=True, row_factory=dict_row, prepare_threshold=None,
+            keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+        )
+
+    def _exec(self, sql: str, params: tuple | None = None) -> psycopg.Cursor:
+        """Execute, reconnecting first if the connection was closed or broken by an earlier failure.
+
+        We never retry a statement that failed mid-flight (it might have been applied); the failure
+        surfaces, the connection is marked broken, and the next call reconnects.
+        """
+        if self.conn.closed or self.conn.broken:
+            self.conn = self._connect()
+        return self.conn.execute(sql, params)
 
     def upsert_lead(self, company: CompanyIn, contact: ContactIn) -> str:
         with self.conn.transaction():
-            comp = self.conn.execute(
+            comp = self._exec(
                 """insert into companies (tenant_id, name, domain, website, country, industry, notes, source)
                    values (%s, %s, %s, %s, %s, %s, %s, %s)
                    on conflict (tenant_id, domain) do update set
@@ -74,7 +97,7 @@ class PostgresRepo:
                 (self.tenant_id, company.name, company.domain, company.website, company.country,
                  company.industry, company.notes, company.source),
             ).fetchone()
-            row = self.conn.execute(
+            row = self._exec(
                 """insert into contacts (tenant_id, company_id, full_name, role, email, legacy_lead_id)
                    values (%s, %s, %s, %s, %s, %s)
                    on conflict (company_id, email) do update set
@@ -88,7 +111,7 @@ class PostgresRepo:
         return str(row["id"])
 
     def is_suppressed(self, email: str | None, domain: str | None) -> bool:
-        row = self.conn.execute(
+        row = self._exec(
             """select 1 from suppression_list
                where tenant_id = %s
                  and ((email is not null and lower(email) = lower(%s))
@@ -98,7 +121,7 @@ class PostgresRepo:
         return row is not None
 
     def add_suppression(self, reason: str, email: str | None = None, domain: str | None = None) -> None:
-        self.conn.execute(
+        self._exec(
             """insert into suppression_list (tenant_id, email, domain, reason) values (%s, %s, %s, %s)
                on conflict do nothing""",
             (self.tenant_id, email, domain, reason),
@@ -115,14 +138,14 @@ class PostgresRepo:
         return Lead(**{**r, "contact_id": str(r["contact_id"]), "company_id": str(r["company_id"])})
 
     def leads_with_status(self, status: str, limit: int) -> list[Lead]:
-        rows = self.conn.execute(
+        rows = self._exec(
             self._LEAD_SQL + " and c.status = %s::lead_status order by c.created_at limit %s",
             (self.tenant_id, self.tenant_id, status, limit),
         ).fetchall()
         return [self._lead(r) for r in rows]
 
     def get_lead(self, contact_id: str) -> Lead:
-        row = self.conn.execute(
+        row = self._exec(
             self._LEAD_SQL + " and c.id = %s", (self.tenant_id, self.tenant_id, contact_id)
         ).fetchone()
         if row is None:
@@ -130,14 +153,14 @@ class PostgresRepo:
         return self._lead(row)
 
     def set_lead_status(self, contact_id: str, status: str) -> None:
-        self.conn.execute(
+        self._exec(
             "update contacts set status = %s::lead_status where id = %s and tenant_id = %s",
             (status, contact_id, self.tenant_id),
         )
 
     def save_research(self, company_id: str, report: ResearchReport) -> str:
         # insert ... select: inserts nothing unless the company belongs to this tenant.
-        row = self.conn.execute(
+        row = self._exec(
             """insert into research_reports
                  (tenant_id, company_id, pages_fetched, services, tech_signals, workflow_hypotheses,
                   summary, model, disqualify_reason, decision_maker, public_emails)
@@ -154,7 +177,7 @@ class PostgresRepo:
         return str(row["id"])
 
     def latest_research(self, company_id: str) -> ResearchReport | None:
-        r = self.conn.execute(
+        r = self._exec(
             """select * from research_reports where company_id = %s and tenant_id = %s
                order by created_at desc limit 1""",
             (company_id, self.tenant_id),
@@ -180,7 +203,7 @@ class PostgresRepo:
 
     def save_message(self, msg: NewMessage) -> Message:
         # insert ... select: inserts nothing unless the contact belongs to this tenant.
-        row = self.conn.execute(
+        row = self._exec(
             """insert into messages (tenant_id, contact_id, step, channel, subject, body, evidence,
                                      version, status, feedback)
                select %s, c.id, %s, %s::channel_type, %s, %s, %s, %s, %s::message_status, %s
@@ -194,7 +217,7 @@ class PostgresRepo:
         return self._message(row)
 
     def get_message(self, message_id: str) -> Message:
-        row = self.conn.execute(
+        row = self._exec(
             "select * from messages where id = %s and tenant_id = %s", (message_id, self.tenant_id)
         ).fetchone()
         if row is None:
@@ -202,7 +225,7 @@ class PostgresRepo:
         return self._message(row)
 
     def latest_message(self, contact_id: str) -> Message | None:
-        r = self.conn.execute(
+        r = self._exec(
             """select * from messages where contact_id = %s and tenant_id = %s
                order by created_at desc limit 1""",
             (contact_id, self.tenant_id),
@@ -211,7 +234,7 @@ class PostgresRepo:
 
     def set_company_industry(self, company_id: str, industry: str) -> None:
         """Tag the sector only if we don't already have one (the lead list is more trusted)."""
-        self.conn.execute(
+        self._exec(
             "update companies set industry = %s where id = %s and tenant_id = %s and industry is null",
             (industry, company_id, self.tenant_id),
         )
@@ -225,7 +248,7 @@ class PostgresRepo:
             cast = "::message_status" if name == "status" else ""
             sets.append(f"{name} = %s{cast}")
             params.append(value)
-        row = self.conn.execute(
+        row = self._exec(
             f"update messages set {', '.join(sets)} where id = %s and tenant_id = %s returning *",
             (*params, message_id, self.tenant_id),
         ).fetchone()
@@ -234,7 +257,7 @@ class PostgresRepo:
         return self._message(row)
 
     def message_needing_changes(self, chat_id: int) -> Message | None:
-        r = self.conn.execute(
+        r = self._exec(
             """select * from messages
                where status = 'needs_changes' and telegram_chat_id = %s and tenant_id = %s
                order by created_at desc limit 1""",
@@ -246,7 +269,7 @@ class PostgresRepo:
         self, type: str, *, contact_id: str | None = None, message_id: str | None = None,
         actor: str = "agent", payload: dict | None = None,
     ) -> None:
-        self.conn.execute(
+        self._exec(
             """insert into events (tenant_id, contact_id, message_id, type, actor, payload)
                values (%s, %s, %s, %s, %s, %s)""",
             (self.tenant_id, contact_id, message_id, type, actor, Jsonb(payload or {})),

@@ -128,3 +128,12 @@ def test_approving_after_a_rejection_or_unknown_company_is_safe():
 def test_footer_type_is_enforced():
     with pytest.raises(Exception):
         Footer(opt_out_line="x")
+
+
+def test_opted_out_leads_are_skipped_at_every_stage():
+    run = build(echo=False)
+    run.repo.add_suppression("manual", domain="acme-freight-demo.com")
+    summary = run.pipeline.run(10)
+    acme = next(c for c in run.repo.contacts.values() if c["email"].endswith("@acme-freight-demo.com"))
+    assert acme["status"] == "unsubscribed" and summary.suppressed == 1
+    assert not any("acme-freight-demo.com" in str(c["user"]) for c in run.llm.calls)  # nothing spent on them

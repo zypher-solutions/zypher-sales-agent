@@ -1,4 +1,4 @@
--- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001 and 002).
+-- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001, 002 and 003).
 -- Fresh database: run this file only. Existing database: run the numbered files in migrations/ instead.
 create extension if not exists "pgcrypto";
 
@@ -148,3 +148,15 @@ create table events (
   created_at timestamptz default now()
 );
 create index events_tenant_contact_idx on events (tenant_id, contact_id, created_at);
+
+-- Close Supabase's public Data API over these tables (RLS on, no policies). The agent connects as the
+-- table owner, which RLS does not apply to. See migrations/003_lock_down_data_api.sql.
+alter table tenants          enable row level security;
+alter table companies        enable row level security;
+alter table contacts         enable row level security;
+alter table research_reports enable row level security;
+alter table campaigns        enable row level security;
+alter table sequences        enable row level security;
+alter table messages         enable row level security;
+alter table suppression_list enable row level security;
+alter table events           enable row level security;

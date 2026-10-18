@@ -32,14 +32,18 @@ def _live(settings: Settings):
     repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
     llm = build_llm(settings, repo)
     tg = TelegramClient(settings.telegram_bot_token.get_secret_value())
-    service = ApprovalService(repo, llm, icp, footer, tg, settings.telegram_allowed_user_ids)
-    return Pipeline(repo, HttpFetcher(), llm, icp, footer, service), service, tg, repo
+    service = ApprovalService(
+        repo, llm, icp, footer, tg, settings.telegram_allowed_user_ids, settings.telegram_approval_chat_id
+    )
+    site = settings.sender_website.removeprefix("https://").removeprefix("http://")
+    agent = f"{icp.company['name']} research bot" + (f" (+https://{site})" if site else "")
+    return Pipeline(repo, HttpFetcher(user_agent=agent), llm, icp, footer, service), service, tg, repo
 
 
 def _print_summary(s) -> None:
     print(
         f"\nResearched: {s.researched} | disqualified: {s.disqualified} | drafted: {s.drafted} | "
-        f"sent to Telegram for approval: {s.delivered} | failed: {len(s.failed)}"
+        f"sent to Telegram for approval: {s.delivered} | skipped (opted out): {s.suppressed} | failed: {len(s.failed)}"
     )
     for f in s.failed:
         print(f"  FAILED {f}")
@@ -47,6 +51,9 @@ def _print_summary(s) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     logging.getLogger("httpx").setLevel(logging.WARNING)  # httpx logs full URLs, and Telegram's contain the bot token
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles default to cp1252 and choke on arrows and emoji
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(prog="zypher_agent")
     sub = ap.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run", help="research and draft new leads, send them for approval")

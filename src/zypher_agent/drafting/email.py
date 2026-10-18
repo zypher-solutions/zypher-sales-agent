@@ -8,11 +8,17 @@ Division of labour:
 """
 from dataclasses import dataclass
 
-from zypher_agent.config import Icp, Settings
+from zypher_agent.config import Icp, Settings, first_touch_offer
 from zypher_agent.guardrails.checks import check_draft
 from zypher_agent.llm import LLM
 from zypher_agent.models import (
-    EmailDraft, Footer, GuardrailResult, Hypothesis, Lead, ResearchReport, Violation,
+    EmailDraft,
+    Footer,
+    GuardrailResult,
+    Hypothesis,
+    Lead,
+    ResearchReport,
+    Violation,
 )
 from zypher_agent.research.agent import neutralize
 
@@ -32,6 +38,7 @@ def build_footer(settings: Settings, icp: Icp) -> Footer:
         opt_out_line=settings.opt_out_line, sender_name=settings.sender_name,
         sender_title=settings.sender_title, sender_email=settings.sender_email,
         company_name=icp.company["name"], postal_address=settings.sender_postal_address,
+        sender_phone=settings.sender_phone, sender_website=settings.sender_website,
     )
 
 
@@ -48,9 +55,10 @@ def greeting_for(contact_name: str | None) -> str:
 
 def render_email(draft: EmailDraft, contact_name: str | None, footer: Footer) -> str:
     greeting = greeting_for(contact_name)
+    contact = " | ".join(x for x in (footer.sender_email, footer.sender_phone, footer.sender_website) if x)
     return (
         f"{greeting}\n\n{draft.body.strip()}\n\nBest,\n{footer.sender_name}\n"
-        f"{footer.sender_title}, {footer.company_name}\n{footer.sender_email}\n\n"
+        f"{footer.sender_title}, {footer.company_name}\n{contact}\n\n"
         f"{footer.opt_out_line}\n{footer.postal_address}"
     )
 
@@ -58,25 +66,32 @@ def render_email(draft: EmailDraft, contact_name: str | None, footer: Footer) ->
 def system_prompt(icp: Icp) -> str:
     lo, hi = icp.messaging_rules.email_word_range
     rules = icp.messaging_rules
+    offer = first_touch_offer(icp)
+    held_back = "; ".join(o.name for o in icp.offers if not o.first_touch) or "nothing else"
     proof = "\n".join(f"- {p.id}" for p in icp.proof_points)
-    return f"""You write first-touch cold emails for Zypher Software Solutions, a company that automates manual business workflows (CRM, Slack, Notion, WhatsApp, ERP integrations, AI agents, internal tools) for small and mid-sized businesses.
+    return f"""You write first-touch cold emails for {icp.company['name']}. {' '.join(str(icp.company['positioning']).split())}
+
+WHAT THIS EMAIL MAY OFFER
+{' '.join(offer.value_statement.split())}
+Never offer, hint at or mention any of these in this email: {held_back}.
 
 THE GOAL OF THIS EMAIL
-{icp.strategy['first_touch_rule'].strip()}
-Ask for exactly one thing: {icp.offer['primary_cta']}.
+{' '.join(icp.strategy['first_touch_rule'].split())}
+The ask: {icp.offer['first_touch_cta']}.
 
 WRITE ONLY THE BODY
 - Plain text, {lo} to {hi} words. No greeting, no sign-off, no signature, no opt-out line, no subject line inside the body. Code adds those.
-- Tone: {rules.tone}.
-- Open with ONE specific observation about THEIR workflow, taken from the evidence below. {rules.hypothesis_style.capitalize()}.
-- Then one sentence on what we do (we automate manual, repetitive workflows), then the call-to-action.
-- You may mention tools like WhatsApp, email, a CRM or their website where they are part of the workflow you observed. Never offer to build, redesign or sell a website, app or software.
+- Tone: {rules.tone}. Write like one business owner to another: short sentences, contractions are fine, say "you" and "your" far more than "we" or "I".
+- Sentence 1: ONE specific observation about THEIR business, taken from the evidence below. {rules.hypothesis_style.capitalize()}.
+- Sentence 2: one plain sentence on how we could help, based on the offer above. Do not copy it word for word.
+- Last sentence: the ask, as one easy yes/no question. The email MUST end with a question mark. Never ask for a call, a meeting, a demo or their time.
+- No links, no web addresses, no urgency, no pressure, no emojis.
 
 HARD LIMITS
 - Never use these phrases: {', '.join(rules.never_say)}.
 - Never claim: {', '.join(rules.never_claim)}.
 - No client names, no case studies, no "our clients", no results. Do not mention any of these proof points, even if you know them: {proof}.
-- No prices or pricing. No numbers except the call length and numbers that appear in the evidence quotes.
+- No prices or pricing. No numbers except numbers that appear in the evidence quotes.
 - Allowed value claims, qualitative only: {'; '.join(icp.offer['value_claims_allowed'])}.
 
 CLAIMS

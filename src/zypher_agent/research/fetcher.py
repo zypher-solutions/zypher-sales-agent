@@ -11,10 +11,11 @@ import hashlib
 import ipaddress
 import re
 import socket
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Protocol
-from urllib.parse import urljoin, urldefrag, urlparse
+from datetime import UTC, datetime
+from typing import Protocol
+from urllib.parse import urldefrag, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -22,7 +23,8 @@ from bs4 import BeautifulSoup, Comment
 
 from zypher_agent.leads import clean_email, normalize_domain
 
-USER_AGENT = "ZypherSalesAgent/0.1 (+https://www.zypher-solutions.com)"
+# Identify honestly as a bot. The CLI passes "<business> research bot (+<website>)" from config.
+USER_AGENT = "SalesResearchBot/0.1"
 MAX_BYTES = 1_000_000        # per page download
 MAX_TEXT_CHARS = 8_000       # per page text handed to the LLM
 MAX_REDIRECTS = 3
@@ -36,10 +38,10 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     "contact": ("contact", "enquir", "inquir", "get-in-touch", "reach-us", "quote"),
     "careers": ("career", "jobs", "join-us", "hiring", "vacanc"),
 }
-SKIP_EXT = re.compile(r"\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|pptx?|mp4|mp3)$", re.I)
+SKIP_EXT = re.compile(r"\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|pptx?|mp4|mp3)$", re.IGNORECASE)
 # Bounded quantifiers keep the scan linear: an unbounded `+` rescans a long run for every start position.
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}")
-JUNK_EMAIL = re.compile(r"\.(png|jpe?g|gif|webp|svg|js|css)$|@(example|domain|yourdomain|sentry|wixpress)\.", re.I)
+JUNK_EMAIL = re.compile(r"\.(png|jpe?g|gif|webp|svg|js|css)$|@(example|domain|yourdomain|sentry|wixpress)\.", re.IGNORECASE)
 
 
 class FetchError(Exception):
@@ -111,7 +113,7 @@ def extract_page(html: str, base_url: str) -> tuple[str, list[str], list[tuple[s
     # Text a human can't see is a classic place to hide instructions for an LLM.
     for tag in soup.find_all(attrs={"hidden": True}) + soup.find_all(attrs={"aria-hidden": "true"}):
         tag.decompose()
-    for tag in soup.find_all(style=re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.I)):
+    for tag in soup.find_all(style=re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGNORECASE)):
         tag.decompose()
 
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
@@ -160,9 +162,10 @@ class HttpFetcher:
         self,
         client: httpx.Client | None = None,
         resolver: Callable[[str], list[str]] = resolve_host,
+        user_agent: str = USER_AGENT,
     ) -> None:
         self.client = client or httpx.Client(timeout=TIMEOUT_S, follow_redirects=False)
-        self.resolver = resolver
+        self.resolver, self.user_agent = resolver, user_agent
 
     def _get(self, url: str, site: str) -> tuple[str, str]:
         """GET with manual redirects so every hop is checked. Returns (html, final_url)."""
@@ -175,7 +178,7 @@ class HttpFetcher:
             if not is_public_host(parsed.hostname, self.resolver):
                 raise FetchError(f"non-public address: {parsed.hostname}")
             try:
-                with self.client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
+                with self.client.stream("GET", url, headers={"User-Agent": self.user_agent}) as r:
                     if r.is_redirect:
                         url = urljoin(url, r.headers.get("location", ""))
                         continue
@@ -194,7 +197,7 @@ class HttpFetcher:
         raise FetchError(f"too many redirects from {url}")
 
     def _allowed(self, robots: RobotFileParser | None, url: str) -> bool:
-        return robots is None or robots.can_fetch(USER_AGENT, url)
+        return robots is None or robots.can_fetch(self.user_agent, url)
 
     def _robots(self, home_url: str, site: str) -> RobotFileParser | None:
         try:
@@ -245,7 +248,7 @@ class HttpFetcher:
             t, e, _ = extract_page(page_html, final)
             pages.append((final, t, e))
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         for url, text, raw in pages:
             result.pages.append(Page(
                 url=url, text=text, emails=clean_emails(raw, site), fetched_at=now,

@@ -6,7 +6,8 @@ there is nothing to strip or regex-repair. Every call is logged to `events` with
 its inputs, outputs, model and cost.
 """
 import time
-from typing import Callable, Protocol, TypeVar
+from collections.abc import Callable
+from typing import Protocol, TypeVar
 
 import anthropic
 from pydantic import BaseModel

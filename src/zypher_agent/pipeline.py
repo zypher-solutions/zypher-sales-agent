@@ -7,8 +7,8 @@
 A failure on one lead is logged and skipped; it never stops the others, and the lead keeps
 its status so the next run retries it.
 """
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 from zypher_agent.approval import ApprovalService
 from zypher_agent.config import Icp
@@ -31,6 +31,7 @@ class RunSummary:
     disqualified: int = 0
     drafted: int = 0
     delivered: int = 0
+    suppressed: int = 0
     failed: list[str] = field(default_factory=list)
 
 
@@ -53,8 +54,19 @@ class Pipeline:
         summary = RunSummary()
         for status, stage in (("new", self._research), ("researched", self._draft), ("drafted", self._deliver)):
             for lead in self.repo.leads_with_status(status, limit):
+                if self._suppressed(lead, summary):
+                    continue
                 self._guard(summary, lead, stage)
         return summary
+
+    def _suppressed(self, lead: Lead, summary: RunSummary) -> bool:
+        """Someone can opt out after import. Check at every stage, before spending anything on them."""
+        if not self.repo.is_suppressed(lead.email, lead.domain):
+            return False
+        self.repo.set_lead_status(lead.contact_id, "unsubscribed")
+        self.repo.log_event("skipped_suppressed", contact_id=lead.contact_id, actor="system")
+        summary.suppressed += 1
+        return True
 
     def _guard(self, summary: RunSummary, lead: Lead, stage: Callable[[Lead, RunSummary], None]) -> None:
         try:

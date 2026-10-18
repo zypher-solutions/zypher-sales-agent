@@ -33,7 +33,7 @@ _UNSUPPORTED = {
     "default", "format", "pattern", "minLength", "maxLength", "minItems", "maxItems",
     "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "examples", "uniqueItems",
 }
-MAX_RETRY_AFTER = 20.0  # seconds we are willing to wait on a 429 before moving to the next model
+MAX_RETRY_AFTER = 60.0  # seconds we wait on a 429 before moving to the next model (free tiers reset per minute)
 
 
 def strict_schema(model: type[BaseModel]) -> dict:

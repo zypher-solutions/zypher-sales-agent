@@ -8,11 +8,9 @@ ICP = load_icp(Settings(_env_file=None).icp_path)
 
 GOOD_BODY = (
     "I noticed your site asks customers to email or WhatsApp you for every shipment quote. "
-    "Are quotes still put together by hand from a spreadsheet each time? That usually eats "
-    "staff time and invites small errors, especially when enquiries pile up. We help small "
-    "businesses automate repetitive workflows like this, connecting WhatsApp, email and a "
-    "simple CRM so replies go out faster. Would a free 15-minute call to walk through how "
-    "your quotes work today be useful? No commitment, and I would only ask about your process."
+    "Are those quotes still put together by hand from a spreadsheet each time? If so, I can "
+    "sketch a one-page way to automate them with the tools you already use, so your team stops "
+    "retyping requests. No call needed. Want me to send it over?"
 )
 HYP = Hypothesis(
     id="h1",
@@ -46,12 +44,12 @@ def rules(draft=None, footer=FOOTER, hyps=(HYP,), **kw) -> set[str]:
 
 
 def test_good_draft_passes():
-    assert 60 <= len(GOOD_BODY.split()) <= 100
+    assert 50 <= len(GOOD_BODY.split()) <= 80
     assert rules() == set()
 
 
 def test_too_short_and_too_long():
-    assert "word_count" in rules(make(body="Are quotes slow? Free 15 minute call?"))
+    assert "word_count" in rules(make(body="Are quotes slow? Want a sketch?"))
     assert "word_count" in rules(make(body=GOOD_BODY + " word" * 40))
 
 
@@ -107,9 +105,34 @@ def test_claim_evidence_must_exist():
     assert "no_evidence" in rules(make(claims=[Claim(text="x", evidence_id="h9")]))
 
 
-def test_missing_cta():
-    body = GOOD_BODY.replace("a free 15-minute call", "a conversation")
-    assert "cta" in rules(make(body=body))
+def test_must_end_with_a_question():
+    body = GOOD_BODY.replace("Want me to send it over?", "I can send it over.")
+    assert "ends_with_question" in rules(make(body=body))
+
+
+def test_no_call_or_meeting_request_in_first_touch():
+    for ask in ("Would a free 15-minute call help?", "Can we schedule a chat?", "Happy to book a demo?",
+                "Can we hop on a quick call?", "Open to a meeting next week?"):
+        body = GOOD_BODY.replace("No call needed. Want me to send it over?", ask)
+        assert "call_request" in rules(make(body=body)), ask
+    assert "call_request" not in rules()  # "no call needed" is the point of the offer
+
+
+def test_at_most_two_questions():
+    assert "single_ask" in rules(make(body=GOOD_BODY.replace("No call needed.", "Is that right? Does it hurt?")))
+
+
+def test_no_links_or_urgency():
+    assert "links" in rules(make(body=GOOD_BODY.replace("your site", "acme-cargo.com")))
+    assert "links" in rules(make(body=GOOD_BODY.replace("your site", "https://x.co/a")))
+    for phrase in ("Act now", "limited time", "only a few spots left"):
+        assert "urgency" in rules(make(body=GOOD_BODY.replace("No call needed.", phrase + "."))), phrase
+
+
+def test_only_the_first_touch_offer_may_be_pitched():
+    assert "offer_scope" in rules(make(body=GOOD_BODY + " We also do rebranding."))
+    assert "offer_scope" in rules(make(body=GOOD_BODY + " A new logo would help too."))
+    assert "offer_scope" not in rules()
 
 
 def test_hypothesis_must_be_hedged():
@@ -118,8 +141,8 @@ def test_hypothesis_must_be_hedged():
         "and invites small errors whenever enquiries pile up across the business every week. "
         "We help small businesses automate repetitive workflows like this one by connecting "
         "WhatsApp, email and a simple CRM so replies go out faster to every customer. "
-        "Let us schedule a free 15-minute call to walk through your process in detail. "
-        "No commitment at all from your side."
+        "I can send a one-page sketch of how it would work. "
+        "No call needed at all from your side."
     )
     assert "hypothesis_style" in rules(make(body=flat))
 
@@ -139,3 +162,16 @@ def test_placeholder_or_empty_footer_rejected():
     assert "footer" in rules(footer=FOOTER.model_copy(update={"opt_out_line": "TODO: opt-out line"}))
     assert "footer" in rules(footer=FOOTER.model_copy(update={"postal_address": ""}))
     assert "footer" in rules(footer=FOOTER.model_copy(update={"sender_name": "  "}))
+
+
+def test_ordinary_wording_is_not_mistaken_for_a_meeting_request():
+    # Seen live: "set up an automation" was flagged as a call request and wasted two retries.
+    body = GOOD_BODY.replace("I can sketch a one-page way", "we could set up an automation and I can sketch a one-page way")
+    assert "call_request" not in rules(make(body=body))
+    assert "call_request" in rules(make(body=GOOD_BODY.replace("No call needed.", "Can we set up a quick call?")))
+
+
+@pytest.mark.parametrize("claim", ["Cut manual quote work in half", "Double your replies", "Get 3x faster quotes"])
+def test_result_claims_in_words_are_rejected(claim):
+    # Seen live: "Cut manual quote work in half" passed as a subject line.
+    assert "unsupported_number" in rules(make(subject=claim))

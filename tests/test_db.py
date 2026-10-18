@@ -8,7 +8,13 @@ import uuid
 import pytest
 
 from zypher_agent.db import InMemoryRepo, PostgresRepo
-from zypher_agent.models import CompanyIn, ContactIn, Hypothesis, NewMessage, ResearchReport
+from zypher_agent.models import (
+    CompanyIn,
+    ContactIn,
+    Hypothesis,
+    NewMessage,
+    ResearchReport,
+)
 
 
 @pytest.fixture(params=["memory", "postgres"])
@@ -192,3 +198,19 @@ def test_cannot_attach_data_to_another_tenants_records(two_tenants):
     a.save_research(company_id, ResearchReport(services=["s"], model="m"))
     assert b.latest_research(company_id) is None
     assert a.latest_research(company_id) is not None
+
+
+def test_postgres_repo_reconnects_after_a_broken_connection():
+    class FakeConn:
+        def __init__(self, broken=False):
+            self.closed, self.broken, self.ran = False, broken, []
+
+        def execute(self, sql, params=None):
+            self.ran.append(sql)
+
+    repo = PostgresRepo.__new__(PostgresRepo)  # skip the real connect
+    repo.tenant_id, repo.conn = "t", FakeConn(broken=True)
+    fresh = FakeConn()
+    repo._connect = lambda: fresh
+    repo._exec("select 1")
+    assert repo.conn is fresh and fresh.ran == ["select 1"]

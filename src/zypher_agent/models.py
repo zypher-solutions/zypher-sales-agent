@@ -1,5 +1,5 @@
 """Domain models shared across modules. These are the contracts between agents."""
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -102,6 +102,11 @@ class Footer(BaseModel):
     sender_email: str
     company_name: str
     postal_address: str
+    # Optional contact lines under the signature. Not required by law, so not checked as missing.
+    sender_phone: str = ""
+    sender_website: str = ""
+
+    REQUIRED: ClassVar[tuple[str, ...]] = ("opt_out_line", "sender_name", "sender_title", "sender_email", "company_name", "postal_address")
 
 
 class Violation(BaseModel):

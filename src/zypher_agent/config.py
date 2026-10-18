@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_api_key: SecretStr | None = Field(default=None, validation_alias=AliasChoices("LLM_API_KEY", "GROQ_API_KEY"))
     # Comma-separated chain: tried in order on rate limits or repeated invalid output.
-    llm_models: str = "openai/gpt-oss-120b,qwen/qwen3.8-27b"
+    llm_models: str = "openai/gpt-oss-120b,openai/gpt-oss-20b"
     llm_reasoning_effort: str = "medium"  # low | medium | high (gpt-oss); "" to omit the parameter
 
     database_url: SecretStr | None = None
@@ -42,10 +42,16 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr | None = None
     # NoDecode: take the raw "1,2,3" string and let the validator split it.
     telegram_allowed_user_ids: Annotated[list[int], NoDecode] = []
+    # Where approval cards go. Unset: the first allowed user's private chat. Set it to a group chat id
+    # (negative number) so partners in that group can review and approve too.
+    telegram_approval_chat_id: int | None = None
 
-    sender_name: str = "Muhammed Hasheem"
-    sender_title: str = "Chief Executive Officer"
+    # Sender identity comes from .env (per business). Empty required values fail the footer check on purpose.
+    sender_name: str = ""
+    sender_title: str = ""
     sender_email: str = ""
+    sender_phone: str = ""
+    sender_website: str = ""
     sender_postal_address: str = "TODO: postal address"
     opt_out_line: str = "TODO: opt-out line"
 
@@ -76,6 +82,18 @@ class MessagingRules(BaseModel):
     hypothesis_style: str
 
 
+class Offer(BaseModel):
+    """One thing the business sells. Exactly one offer with first_touch=True is pitched in email 1."""
+
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str
+    first_touch: bool = False
+    value_statement: str
+    evidence_focus: str = "manual, repetitive workflows"  # what research looks for, for first-touch offers
+    avoid_patterns: list[str] = []  # regexes rejected in a first touch (offers we are not pitching yet)
+
+
 class Icp(BaseModel):
     """The parts of icp.yaml the agents and guardrails use."""
 
@@ -88,7 +106,16 @@ class Icp(BaseModel):
     offer: dict
     strategy: dict
     target: dict
+    offers: list[Offer] = []
 
 
 def load_icp(path: Path) -> Icp:
     return Icp.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+def first_touch_offer(icp: Icp) -> Offer:
+    """The single offer pitched in a first touch. Config must define exactly one."""
+    chosen = [o for o in icp.offers if o.first_touch]
+    if len(chosen) != 1:
+        raise ValueError(f"icp.yaml needs exactly one offer with first_touch: true, found {len(chosen)}")
+    return chosen[0]

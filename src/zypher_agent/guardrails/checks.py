@@ -6,7 +6,13 @@ rule that passes in a test passes in production.
 import re
 
 from zypher_agent.config import Icp
-from zypher_agent.models import EmailDraft, Footer, GuardrailResult, Hypothesis, Violation
+from zypher_agent.models import (
+    EmailDraft,
+    Footer,
+    GuardrailResult,
+    Hypothesis,
+    Violation,
+)
 
 # icp.yaml `forbidden_proof` is prose, so the matchable phrases live here.
 FORBIDDEN_PROOF_PHRASES = [
@@ -14,21 +20,33 @@ FORBIDDEN_PROOF_PHRASES = [
     "we have helped", "we've helped", "we helped", "proven results",
     "proven track record", "case study", "case studies", "trusted by",
 ]
-# First touch pitches the workflow call only; building things comes after the call.
-OFFER_SCOPE = re.compile(
-    r"redesign|new website|website development|web development|app development"
-    r"|build (you |your )?(a |an |the )?(new )?(website|site|app|mobile app)"
-    r"|rebuild (your |the )?(website|site)",
-    re.I,
+# A first touch asks a yes/no question, not for time. These phrases request a call, meeting or demo.
+# ("no call needed" is fine: it never says "a call".)
+CALL_ASK = re.compile(
+    r"\b(hop|jump|get) on (a|an|the)\b"
+    r"|\b(schedule|book|set up|arrange)\s+(a|an|the|some|our)?\s*(\w+\s+)?(call|chat|meeting|demo|time|slot)\b"
+    r"|\b(a|an|the|our|short|quick|brief|free)\s+(\w+\s+)?(call|chat|meeting|demo|zoom|conversation)\b"
+    r"|\b\d+[- ]?(min|minute)s?\b|\bcalendar\b|\bzoom\b|\bdemo\b",
+    re.IGNORECASE,
 )
-PRICING = re.compile(r"\bpric(e|es|ing)\b|\bdiscount\b|[$₹€£]|\b(AED|QAR|USD|INR)\b", re.I)
+LINK = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(com|in|ae|qa|co|io|net|org|ai|app)\b", re.IGNORECASE)
+URGENCY = re.compile(
+    r"\b(act now|limited time|last chance|hurry|urgent|urgently|spots? left|only today|expires?|"
+    r"before it'?s too late|don'?t miss)\b",
+    re.IGNORECASE,
+)
+# Result claims written in words instead of digits ("cut it in half", "double your replies") are still numbers.
+RESULT_CLAIM = re.compile(
+    r"\bin half\b|\bhalve[sd]?\b|\b(double|triple|quadruple)[sd]?\b|\b\d+x\b|\btenfold\b",
+    re.IGNORECASE,
+)
+PRICING = re.compile(r"\bpric(e|es|ing)\b|\bdiscount\b|[$₹€£]|\b(AED|QAR|USD|INR)\b", re.IGNORECASE)
 HEDGES = re.compile(
     r"\?|\b(probably|likely|might|perhaps|wonder|wondering|curious|suspect|guess|imagine|maybe)\b",
-    re.I,
+    re.IGNORECASE,
 )
-CTA = re.compile(r"\b(15|20)\b.{0,12}min", re.I)
-GREETING = re.compile(r"^\s*(hi|hello|dear|hey)\b", re.I)
-SIGN_OFF = re.compile(r"\b(best regards|kind regards|regards|sincerely|best wishes|thanks,)\b", re.I)
+GREETING = re.compile(r"^\s*(hi|hello|dear|hey)\b", re.IGNORECASE)
+SIGN_OFF = re.compile(r"\b(best regards|kind regards|regards|sincerely|best wishes|thanks,)\b", re.IGNORECASE)
 NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 
 
@@ -40,7 +58,7 @@ def footer_problems(footer: Footer) -> list[str]:
     """Empty or placeholder footer fields. Checked up front so no money is spent on unsendable drafts."""
     return [
         f"{name} is empty or still a placeholder"
-        for name, value in footer.model_dump().items()
+        for name, value in footer.model_dump(include=set(Footer.REQUIRED)).items()
         if not value.strip() or "todo" in value.lower()
     ]
 
@@ -81,7 +99,7 @@ def check_draft(
         fail("proof_in_first_touch", "names USR; proof is omitted from the first touch")
 
     # numbers: only the CTA's, allowed metrics, and figures quoted from the lead's own site
-    allowed = _numbers(str(icp.offer.get("primary_cta", "")))
+    allowed = _numbers(str(icp.offer.get("first_touch_cta", "")))
     for p in icp.proof_points:
         for metric in p.allowed_metrics:
             allowed |= _numbers(metric)
@@ -89,6 +107,8 @@ def check_draft(
         allowed |= _numbers(h.quote)
     if "%" in text:
         fail("unsupported_number", "percentages are not allowed")
+    if m := RESULT_CLAIM.search(text):
+        fail("unsupported_number", f"{m.group(0)!r} is a result claim we cannot prove")
     for n in sorted(_numbers(text) - allowed):
         fail("unsupported_number", f"{n} is not in the CTA, allowed metrics, or cited evidence")
 
@@ -96,9 +116,14 @@ def check_draft(
     if PRICING.search(text):
         fail("pricing", "no pricing in first touch")
 
-    # first touch offers the workflow call, not a build
-    if OFFER_SCOPE.search(text):
-        fail("offer_scope", "first touch must not offer a website/app/software build")
+    # first touch pitches only the first-touch offer; the others are raised on the call
+    for offer in icp.offers:
+        if offer.first_touch:
+            continue
+        for pattern in offer.avoid_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                fail("offer_scope", f"first touch must not pitch {offer.name!r}")
+                break
 
     # evidence: every claim must point at stored evidence
     known = {h.id for h in hypotheses}
@@ -112,15 +137,24 @@ def check_draft(
             fail("unknown_evidence", f"claim cites {c.evidence_id!r}, which does not exist")
 
     # tone and structure
-    if not CTA.search(body):
-        fail("cta", "must ask for a 15-20 minute call")
+    stripped = body.rstrip()
+    if not stripped.endswith("?"):
+        fail("ends_with_question", "the email must end with one easy question")
+    if stripped.count("?") > 2:
+        fail("single_ask", "at most two questions: the observation and the ask")
+    if CALL_ASK.search(body):
+        fail("call_request", "do not ask for a call, meeting or time in a first touch; offer the sketch")
+    if LINK.search(text):
+        fail("links", "no links or web addresses in a first touch")
+    if URGENCY.search(text):
+        fail("urgency", "no urgency or scarcity language")
     if not HEDGES.search(body):
         fail("hypothesis_style", "hypothesis must be phrased as a question or likelihood")
     if GREETING.search(body) or SIGN_OFF.search(body):
         fail("body_wrapper", "body must not contain a greeting or sign-off; code adds them")
     if not subject.strip() or len(subject) > 80:
         fail("subject", "subject must be 1-80 characters")
-    if re.match(r"\s*(re|fwd?):", subject, re.I) or subject.lower().startswith("subject:"):
+    if re.match(r"\s*(re|fwd?):", subject, re.IGNORECASE) or subject.lower().startswith("subject:"):
         fail("subject", "subject must not fake a reply/forward or repeat 'Subject:'")
 
     # footer: opt-out and sender identity are non-negotiable

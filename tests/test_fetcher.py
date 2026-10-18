@@ -2,10 +2,16 @@ import httpx
 import pytest
 
 from zypher_agent.research.fetcher import (
-    MAX_BYTES, MAX_TEXT_CHARS, HttpFetcher, clean_emails, extract_page, is_public_host, pick_pages,
+    MAX_BYTES,
+    MAX_TEXT_CHARS,
+    HttpFetcher,
+    clean_emails,
+    extract_page,
+    is_public_host,
+    pick_pages,
 )
 
-PUBLIC = lambda host: ["93.184.216.34"]  # noqa: E731
+PUBLIC = lambda host: ["93.184.216.34"]
 
 
 # ---------- pure helpers ----------

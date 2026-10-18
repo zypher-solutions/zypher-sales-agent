@@ -16,7 +16,7 @@ from zypher_agent.approval import ApprovalService, ConsoleNotifier
 from zypher_agent.config import REPO_ROOT, Icp, load_icp
 from zypher_agent.db import InMemoryRepo
 from zypher_agent.llm import MockLLM
-from zypher_agent.models import CompanyIn, ContactIn, EmailDraft, Claim, Footer
+from zypher_agent.models import Claim, CompanyIn, ContactIn, EmailDraft, Footer
 from zypher_agent.pipeline import Pipeline, RunSummary
 from zypher_agent.research.agent import HypothesisOut, ResearchOutput
 from zypher_agent.research.fetcher import FakeFetcher, Page, SiteFetch
@@ -99,22 +99,19 @@ RESEARCH = {
 
 ACME_BODY = (
     "I noticed Acme asks customers to request a quote by email or WhatsApp, and that you are hiring someone to handle "
-    "shipment documentation and data entry. Are quotes and paperwork still typed up by hand each time? That usually eats "
-    "staff time and invites small errors when enquiries pile up. We automate repetitive workflows like this, connecting "
-    "WhatsApp, email and a simple CRM so replies go out faster. Would a free 15-minute call to walk through how your "
-    "quotes work today be useful? No commitment, and I would only ask about your process."
+    "shipment documentation and data entry. Are quotes and paperwork still typed up by hand each time? If so, I can "
+    "sketch a one-page way to automate them with the tools you already use, so your team stops retyping. No call "
+    "needed. Want me to send it over?"
 )
 ACME_SHORT = (
     "I noticed Acme asks customers to request a quote by email or WhatsApp. Are quotes still put together by hand each "
-    "time? We automate repetitive workflows like this, connecting WhatsApp, email and a simple CRM so replies go out "
-    "faster and with fewer manual errors. Would a free 15-minute call to walk through how your quotes work today be "
-    "useful? No commitment, just a few questions about your process."
+    "time? If so, I can sketch a one-page way to automate that with the tools you already use, so your team stops "
+    "retyping each request. No call needed. Want me to send it over?"
 )
 CLINIC_BODY = (
     "I noticed your reception team confirms every booking by phone. Is that a lot of calls for the front desk each day? "
-    "That usually eats staff time that could go to patients. We automate repetitive workflows like this, connecting "
-    "WhatsApp, email and a simple booking system so confirmations go out faster with fewer manual errors. Would a free "
-    "15-minute call to walk through how bookings work today be useful? No commitment, and I would only ask about your process."
+    "If so, I can sketch a one-page way to send confirmations automatically with the tools you already use, so the "
+    "team has more time for patients. No call needed. Want me to send it over?"
 )
 
 
@@ -125,7 +122,7 @@ def _domain(user: str) -> str:
 def _draft(system: str, user: str) -> EmailDraft:
     domain = _domain(user)
     if domain == "sunrise-clinic-demo.com":
-        body = CLINIC_BODY if "broke these rules" in user else CLINIC_BODY + " It is a revolutionary approach."
+        body = CLINIC_BODY if "broke these rules" in user else CLINIC_BODY.replace("No call needed.", "It is a revolutionary approach. No call needed.")
         return EmailDraft(subject="Booking confirmations by phone?", body=body, claims=[Claim(text="reception confirms bookings by phone", evidence_id="h1")])
     return EmailDraft(subject="Quotes by hand?", body=ACME_BODY, claims=[Claim(text="quotes by email or WhatsApp", evidence_id="h1"), Claim(text="hiring for data entry", evidence_id="h2")])
 

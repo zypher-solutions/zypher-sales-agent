@@ -1,4 +1,5 @@
 import pytest
+from test_guardrails import FOOTER, GOOD_BODY, HYP
 
 from zypher_agent.approval import CARD_LIMIT, ApprovalService, ConsoleNotifier
 from zypher_agent.config import Settings, load_icp
@@ -6,14 +7,19 @@ from zypher_agent.db import InMemoryRepo
 from zypher_agent.drafting.email import DraftResult, evidence_for, render_email
 from zypher_agent.guardrails.checks import check_draft
 from zypher_agent.llm import LLMError, MockLLM
-from zypher_agent.models import Claim, CompanyIn, ContactIn, EmailDraft, NewMessage, ResearchReport
-
-from test_guardrails import FOOTER, GOOD_BODY, HYP
+from zypher_agent.models import (
+    Claim,
+    CompanyIn,
+    ContactIn,
+    EmailDraft,
+    NewMessage,
+    ResearchReport,
+)
 
 ICP = load_icp(Settings(_env_file=None).icp_path)
 OWNER, STRANGER = 111, 999
 GOOD = EmailDraft(subject="Quotes by hand?", body=GOOD_BODY, claims=[Claim(text="q", evidence_id="h1")])
-SHORTER = GOOD.model_copy(update={"subject": "Shorter version", "body": GOOD_BODY.replace(" No commitment, and I would only ask about your process.", "")})
+SHORTER = GOOD.model_copy(update={"subject": "Shorter version", "body": GOOD_BODY.replace(" No call needed.", "")})
 REPORT = ResearchReport(hypotheses=[HYP], summary="A freight company.")
 
 
@@ -192,3 +198,37 @@ def test_unexpected_error_is_logged_and_reported_not_raised():
     service.handle_update({"callback_query": {"id": "c", "from": {"id": OWNER}}})  # malformed: no message
     assert any(e["type"] == "approval_error" for e in repo.events)
     assert "went wrong" in notifier.sent[-1]["text"]
+
+
+# ---------- opt-outs and shared approval chats ----------
+
+def test_suppress_command_adds_email_or_domain():
+    repo, notifier, service, _, _ = world()
+    say(service, "/suppress Someone@Example.org")
+    say(service, "/suppress https://www.blocked-co.com/about")
+    assert repo.is_suppressed("someone@example.org", None)
+    assert repo.is_suppressed("anyone@blocked-co.com", "blocked-co.com")
+    assert "do-not-contact" in notifier.sent[-1]["text"]
+
+
+def test_suppress_command_needs_a_valid_target_and_an_allowed_user():
+    repo, notifier, service, _, _ = world()
+    say(service, "/suppress not-an-address")
+    assert "Usage" in notifier.sent[-1]["text"] and not repo.suppressed
+    say(service, "/suppress evil@x.com", user=666)
+    assert not repo.suppressed
+
+
+def test_approve_is_blocked_if_the_contact_opted_out_after_drafting():
+    repo, _, service, msg, _ = world()
+    repo.add_suppression("manual", email="ann@acme.com")
+    tap(service, msg, "approve")
+    assert repo.get_message(msg.id).status == "awaiting_approval"
+    assert repo.contacts[msg.contact_id]["status"] == "awaiting_approval"
+
+
+def test_cards_can_go_to_a_partner_group_but_only_allowed_users_act():
+    repo, notifier = InMemoryRepo(), ConsoleNotifier(echo=False)
+    service = ApprovalService(repo, MockLLM(repo, {}), ICP, FOOTER, notifier, [OWNER, 2002], chat_id=-100555)
+    assert service.chat_id == -100555
+    assert service._authorized(2002, "test") and not service._authorized(3003, "test")

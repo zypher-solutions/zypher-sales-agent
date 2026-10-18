@@ -18,6 +18,6 @@ def test_secrets_do_not_print(monkeypatch):
 
 def test_icp_loads():
     icp = load_icp(Settings(_env_file=None).icp_path)
-    assert icp.messaging_rules.email_word_range == (60, 100)
+    assert icp.messaging_rules.email_word_range == (50, 80)
     assert "revolutionary" in icp.messaging_rules.never_say
     assert any(p.id == "usr_first_deployment" for p in icp.proof_points)

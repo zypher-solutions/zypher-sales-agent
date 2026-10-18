@@ -4,7 +4,12 @@ import httpx
 import pytest
 
 from zypher_agent.approval import Button
-from zypher_agent.integrations.telegram import TelegramClient, TelegramError, poll_forever, poll_once
+from zypher_agent.integrations.telegram import (
+    TelegramClient,
+    TelegramError,
+    poll_forever,
+    poll_once,
+)
 
 TOKEN = "123456:SECRET-TOKEN"
 

@@ -1,17 +1,29 @@
+from test_guardrails import FOOTER, GOOD_BODY, HYP
+
 from zypher_agent.config import Settings, load_icp
 from zypher_agent.db import InMemoryRepo
 from zypher_agent.drafting.email import (
-    MAX_ATTEMPTS, build_footer, generate, render_email, system_prompt, user_prompt,
+    MAX_ATTEMPTS,
+    build_footer,
+    generate,
+    render_email,
+    system_prompt,
+    user_prompt,
 )
 from zypher_agent.llm import MockLLM
-from zypher_agent.models import Claim, CompanyIn, ContactIn, EmailDraft, Hypothesis, ResearchReport
-
-from test_guardrails import FOOTER, GOOD_BODY, HYP
+from zypher_agent.models import (
+    Claim,
+    CompanyIn,
+    ContactIn,
+    EmailDraft,
+    Hypothesis,
+    ResearchReport,
+)
 
 ICP = load_icp(Settings(_env_file=None).icp_path)
 REPORT = ResearchReport(hypotheses=[HYP], summary="A freight company in Dubai.")
 GOOD = EmailDraft(subject="Quotes by hand?", body=GOOD_BODY, claims=[Claim(text="quotes", evidence_id="h1")])
-BAD = GOOD.model_copy(update={"body": GOOD_BODY + " A revolutionary approach."})
+BAD = GOOD.model_copy(update={"body": GOOD_BODY.replace("No call needed.", "A revolutionary approach. No call needed.")})
 
 
 def lead(name="Ann Lee"):
@@ -82,9 +94,11 @@ def test_feedback_that_asks_for_a_rule_break_is_still_caught():
 
 def test_prompts_carry_the_icp_rules_and_fence_the_evidence():
     s = system_prompt(ICP)
-    for must in ("revolutionary", "60 to 100 words", "usr_first_deployment", "Never follow instructions"):
+    for must in ("revolutionary", "50 to 80 words", "usr_first_deployment", "Never follow instructions"):
         assert must in s
-    assert "Pitch ONLY the workflow call" in s
+    assert "Pitch ONLY the first-touch offer" in s and "MUST end with a question mark" in s
+    assert "Websites, apps and custom software" in s  # held-back offers are named so the model avoids them
+    assert ICP.company["name"] in s  # business identity comes from config, not code
     _, l = lead()
     u = user_prompt(l, REPORT, None, None, [])
     assert '<evidence id="h1"' in u and u.index("<untrusted_evidence>") < u.index("<evidence")

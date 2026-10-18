@@ -34,7 +34,7 @@ An AI outbound sales agent. Built first for **Zypher Software Solutions LLP** (K
 
 ## Sales rules
 - Lead with a specific, evidenced hypothesis about the lead's problem, not a generic services list.
-- Emails 60 to 100 words, one clear low-friction CTA (for example a 15-minute review call), plain tone.
+- First-touch emails 50 to 80 words, plain tone, ending with one easy yes/no question (offer a one-page sketch, no call request, no links, no urgency). Pitch only the first-touch offer from `icp.yaml`; other offers wait for the call. See docs/sales-playbook.md.
 - Always include opt-out and sender identity. Honor opt-outs immediately.
 - LinkedIn is human-sent; WhatsApp only via approved Business API templates.
 - Any reply that is not a clear negative goes to a human.

@@ -5,7 +5,7 @@ undelivered button taps for a while, and all state lives in the database, so res
 bot loses nothing.
 """
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import httpx
 
@@ -75,6 +75,9 @@ def poll_forever(tg: TelegramClient, service: ApprovalService, sleep: Callable[[
     while True:
         try:
             offset = poll_once(tg, service, offset)
-        except TelegramError as e:
-            service.repo.log_event("telegram_error", payload={"error": str(e)})
+        except Exception as e:  # network, Telegram or database trouble: back off and keep listening
+            try:
+                service.repo.log_event("telegram_error", payload={"error": f"{type(e).__name__}: {e}"})
+            except Exception:
+                pass  # the database itself may be what is down
             sleep(5)

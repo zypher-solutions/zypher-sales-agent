@@ -19,11 +19,16 @@ from zypher_agent.config import Icp
 from zypher_agent.db import Repository
 from zypher_agent.drafting.email import evidence_for, generate
 from zypher_agent.guardrails.checks import check_draft
+from zypher_agent.leads import clean_email, normalize_domain
 from zypher_agent.llm import LLM, LLMError
 from zypher_agent.models import EmailDraft, Footer, Hypothesis, Lead, Message
 
 CARD_LIMIT = 3900  # Telegram's hard limit is 4096 characters per message
-HELP = "Tap Suggest changes under a draft, then type what to change. Approve and Reject are buttons."
+HELP = (
+    "Tap Suggest changes under a draft, then type what to change. Approve and Reject are buttons.\n"
+    "/suppress name@company.com  never contact this address again\n"
+    "/suppress company.com  never contact anyone at this domain again"
+)
 
 
 class Button(BaseModel):
@@ -90,13 +95,15 @@ def format_card(msg: Message, lead: Lead) -> str:
 class ApprovalService:
     def __init__(
         self, repo: Repository, llm: LLM, icp: Icp, footer: Footer, notifier: Notifier,
-        allowed_user_ids: list[int],
+        allowed_user_ids: list[int], chat_id: int | None = None,
     ) -> None:
         if not allowed_user_ids:  # an empty allowlist must mean "nobody", never "everybody"
             raise ValueError("TELEGRAM_ALLOWED_USER_IDS is empty: refusing to start with no authorized user")
         self.repo, self.llm, self.icp, self.footer, self.notifier = repo, llm, icp, footer, notifier
         self.allowed = set(allowed_user_ids)
-        self.chat_id = allowed_user_ids[0]  # approvals go to the first allowed user's private chat
+        # Cards go to a shared group if configured (partners), else the first allowed user's private chat.
+        # Either way, only allowlisted user ids can press buttons or give feedback.
+        self.chat_id = chat_id if chat_id is not None else allowed_user_ids[0]
 
     # ---------- outgoing ----------
 
@@ -166,6 +173,9 @@ class ApprovalService:
             if not check.passed:
                 self.notifier.answer(cb_id, "Blocked: " + "; ".join(v.rule for v in check.violations))
                 return
+            if self.repo.is_suppressed(lead.email, lead.domain):  # they may have opted out since drafting
+                self.notifier.answer(cb_id, "Blocked: this contact is on the do-not-contact list.")
+                return
             self.repo.update_message(msg.id, status="approved")
             self.repo.set_lead_status(lead.contact_id, "approved")
             self.repo.log_event("approved", contact_id=lead.contact_id, message_id=msg.id, actor=actor, payload={"version": msg.version})
@@ -195,6 +205,9 @@ class ApprovalService:
         if not self._authorized(m.get("from", {}).get("id"), "message"):
             return
         chat_id, user, text = m["chat"]["id"], m["from"]["id"], m["text"].strip()
+        if text.split(" ")[0].split("@")[0] == "/suppress":  # "/suppress@BotName x" is how groups send it
+            self._suppress(chat_id, user, text.split(maxsplit=1)[1] if " " in text else "")
+            return
         msg = None if text.startswith("/") else self.repo.message_needing_changes(chat_id)
         if msg is None:
             self.notifier.send(chat_id, HELP)
@@ -221,6 +234,18 @@ class ApprovalService:
         if msg.telegram_message_id:
             self.notifier.edit(chat_id, msg.telegram_message_id, f"✏️ Superseded by v{new.version}. Feedback: {text[:300]}")
         self._send_card(new, lead)
+
+    def _suppress(self, chat_id: int, user: int, target: str) -> None:
+        """Opt-outs are honoured immediately: research, drafting, approval (and later sending) all check this list."""
+        target = target.strip()
+        email = clean_email(target) if "@" in target else None
+        domain = None if email else normalize_domain(target)
+        if not email and not domain:
+            self.notifier.send(chat_id, "Usage: /suppress name@company.com  or  /suppress company.com")
+            return
+        self.repo.add_suppression("manual", email=email, domain=domain)
+        self.repo.log_event("suppressed", actor=f"human:{user}", payload={"email": email, "domain": domain})
+        self.notifier.send(chat_id, f"🚫 {email or domain} is on the do-not-contact list. They will never be emailed.")
 
     def _recheck(self, msg: Message):
         ev = msg.evidence
