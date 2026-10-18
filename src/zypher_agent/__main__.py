@@ -107,6 +107,31 @@ def _status(settings: Settings) -> int:
     return 0
 
 
+def _testmail(settings: Settings, to: str) -> int:
+    """One real email, to a mailbox the owner controls, containing no lead data. Not subject to the lead rules."""
+    from zypher_agent.leads import clean_email
+    from zypher_agent.sender.transport import OutgoingEmail, SendError, SMTPTransport, new_message_id
+
+    address = clean_email(to)
+    if address is None:
+        sys.exit(f"{to!r} is not a valid email address.")
+    body = (
+        "This is a test from your sales agent. It checks that your mailbox can send and that the message is "
+        "authenticated.\n\nIn Gmail: open this message, click the three dots, choose 'Show original', and look "
+        "for SPF: PASS, DKIM: PASS and DMARC: PASS at the top.\n\nIf it landed in Spam, mark it 'Not spam'."
+    )
+    mail = OutgoingEmail(
+        to=address, subject="test from your sales agent", body=body, message_id=new_message_id(settings.sender_email),
+        from_addr=settings.sender_email, from_name=settings.sender_name,
+    )
+    try:
+        SMTPTransport(settings).send(mail)
+    except SendError as e:
+        sys.exit(f"Test email failed: {e}")
+    print(f"Test email sent to {address}. Check the inbox AND the spam folder, then 'Show original'.")
+    return 0
+
+
 def _send(settings: Settings, loop: bool) -> int:
     import time
 
@@ -192,6 +217,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="show how many leads are at each stage and what needs your attention")
     sub.add_parser("send", help="one pass: send approved emails that the send policy allows right now")
     sub.add_parser("worker", help="keep sending approved emails as the policy allows (leave running; Ctrl+C stops)")
+    tm = sub.add_parser("testmail", help="send ONE plain test email to an address you own, to check SPF/DKIM headers")
+    tm.add_argument("--to", required=True, help="your own other mailbox, e.g. a Gmail address")
     sub.add_parser("preflight", help="check DNS records and mailbox logins before the first real send (sends nothing)")
     src = sub.add_parser("source", help="find companies on Google Maps (Apify) and add them as new leads")
     src.add_argument("--query", action="append", required=True, help='e.g. "logistics company" (repeat for more)')
@@ -231,6 +258,8 @@ def main(argv: list[str] | None = None) -> int:
         return _status(settings)
     if args.cmd == "preflight":
         return _preflight(settings)
+    if args.cmd == "testmail":
+        return _testmail(settings, args.to)
     if args.cmd in ("send", "worker"):
         return _send(settings, loop=args.cmd == "worker")
     pipeline, service, tg, repo = _live(settings)

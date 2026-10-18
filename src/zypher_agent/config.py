@@ -22,7 +22,7 @@ DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 class Settings(BaseSettings):
     """Everything that comes from the environment. Secrets are SecretStr so they never print."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True, env_ignore_empty=True)
 
     anthropic_api_key: SecretStr | None = None
     llm_model: str = "claude-sonnet-5-5"  # used when llm_provider == "anthropic"
