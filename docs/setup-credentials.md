@@ -14,7 +14,7 @@ Put every value in a local `.env` file (copy `.env.example`). Never paste secret
 2. Open the project -> Connect (top bar) -> choose **Session pooler** URI (works on IPv4 networks; the direct connection is IPv6-only on the free tier).
 3. Copy the URI and replace `[YOUR-PASSWORD]` with your database password. If the password has special characters (`@ : / #`), URL-encode them.
 4. `.env`: `DATABASE_URL=postgresql://postgres.xxxx:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres`
-5. Create the tables: SQL Editor -> New query -> paste `schema.sql` -> Run. Then paste and run `migrations/001_phase1.sql`.
+5. Create the tables: SQL Editor -> New query -> paste `schema.sql` -> Run. That file is the complete current schema (it already includes migrations 001 and 002), so on a fresh project run **only** `schema.sql`. The numbered files in `migrations/` are for upgrading an older database.
 6. Never use the `service_role` or `anon` API keys for this; we connect straight to Postgres.
 
 ## 3. Telegram approval bot (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`)

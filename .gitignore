@@ -10,3 +10,6 @@ __pycache__/
 
 # old n8n export: contains a Google Sheet ID and a personal Telegram chat ID; the sheet has lead data
 docs/legacy/
+
+# model-eval drafts contain lead data
+eval_out/

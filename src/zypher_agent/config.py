@@ -1,9 +1,16 @@
 """Configuration: secrets and runtime settings from env vars, business rules from icp.yaml."""
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, SecretStr, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -15,11 +22,19 @@ DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 class Settings(BaseSettings):
     """Everything that comes from the environment. Secrets are SecretStr so they never print."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     anthropic_api_key: SecretStr | None = None
-    llm_model: str = "claude-sonnet-5-5"
+    llm_model: str = "claude-sonnet-5-5"  # used when llm_provider == "anthropic"
     llm_max_tokens: int = 16000
+
+    # Provider for all LLM calls. "openai_compat" covers Groq, Ollama, Together, Mistral, NIM...
+    llm_provider: Literal["openai_compat", "anthropic"] = "openai_compat"
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    llm_api_key: SecretStr | None = Field(default=None, validation_alias=AliasChoices("LLM_API_KEY", "GROQ_API_KEY"))
+    # Comma-separated chain: tried in order on rate limits or repeated invalid output.
+    llm_models: str = "openai/gpt-oss-120b,qwen/qwen3.8-27b"
+    llm_reasoning_effort: str = "medium"  # low | medium | high (gpt-oss); "" to omit the parameter
 
     database_url: SecretStr | None = None
     tenant_id: str = DEFAULT_TENANT_ID

@@ -22,14 +22,15 @@ def _live(settings: Settings):
     from zypher_agent.db import PostgresRepo
     from zypher_agent.drafting.email import build_footer
     from zypher_agent.integrations.telegram import TelegramClient
-    from zypher_agent.llm import ClaudeLLM
+    from zypher_agent.llm_factory import build_llm
     from zypher_agent.pipeline import Pipeline
     from zypher_agent.research.fetcher import HttpFetcher
 
-    _require(settings, "database_url", "anthropic_api_key", "telegram_bot_token", "telegram_allowed_user_ids")
+    llm_key = "anthropic_api_key" if settings.llm_provider == "anthropic" else "llm_api_key"
+    _require(settings, "database_url", llm_key, "telegram_bot_token", "telegram_allowed_user_ids")
     icp, footer = load_icp(settings.icp_path), build_footer(settings, load_icp(settings.icp_path))
     repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
-    llm = ClaudeLLM(settings, repo)
+    llm = build_llm(settings, repo)
     tg = TelegramClient(settings.telegram_bot_token.get_secret_value())
     service = ApprovalService(repo, llm, icp, footer, tg, settings.telegram_allowed_user_ids)
     return Pipeline(repo, HttpFetcher(), llm, icp, footer, service), service, tg, repo
