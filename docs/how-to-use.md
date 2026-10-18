@@ -35,6 +35,15 @@ You never need Claude to run this day to day. Open a terminal in the project fol
 
 Anyone who replies "no thanks" should be added with `/suppress` straight away.
 
+## Sending (switched off until you turn it on)
+1. Put `MAIL_PASSWORD=` (your mailbox password) in `.env` yourself. Never paste it anywhere else.
+2. `.\zypher.ps1 preflight` checks DNS, SPF, DMARC and logs in to your mailbox. It sends nothing. Fix every FAIL first.
+3. For the first test, set `SEND_ALLOWLIST=` to your own other email addresses (for example your Gmail) and `SENDING_ENABLED=true`. Only those can receive mail.
+4. Approve a draft in Telegram, then `.\zypher.ps1 send` (one pass) or `.\zypher.ps1 worker` (keeps going, leave open).
+5. Open the email in Gmail, choose "Show original", and confirm `SPF: PASS` and `DKIM: PASS`.
+6. Only then clear `SEND_ALLOWLIST` to go live. The rules (business hours in the lead's country, 5 emails a day at first, spacing, never twice) apply automatically.
+Telegram controls: `/pause`, `/resume`, `/status`.
+
 ## Other commands
 - `.\zypher.ps1 refresh` rewrites every draft still waiting with the latest rules (use after changing wording rules).
 - `.\zypher.ps1 demo` runs everything on fake data, free, with no keys. `.\zypher.ps1 test` runs the self-checks.

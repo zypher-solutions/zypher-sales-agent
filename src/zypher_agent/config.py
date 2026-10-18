@@ -57,6 +57,22 @@ class Settings(BaseSettings):
     sender_postal_address: str = "TODO: postal address"
     opt_out_line: str = "TODO: opt-out line"
 
+    # Sending (Phase 2). Defaults are GoDaddy's mail servers, because that is where this domain's mail lives.
+    # `preflight` logs in and checks them without sending anything. The password only ever lives in .env.
+    mail_user: str = ""  # login name; empty means "same as sender_email"
+    mail_password: SecretStr | None = None
+    smtp_host: str = "smtpout.secureserver.net"
+    smtp_port: int = 465  # 465 = encrypted from the first byte, 587 = upgraded after connecting
+    imap_host: str = "imap.secureserver.net"
+    imap_port: int = 993
+    # Master switch. Off means the worker will not send anything, whatever else is configured.
+    sending_enabled: bool = False
+    # Staged rollout: when set (comma-separated addresses or domains), ONLY these recipients can receive email.
+    # Use it for the first test sends to your own mailboxes, then clear it to go live.
+    send_allowlist: str = ""
+    sender_timezone: str = "Asia/Kolkata"  # where "today" starts and ends for the daily cap
+    daily_send_cap: int | None = None  # your own cap; can only lower the built-in warmup ramp, never raise it
+
     icp_path: Path = REPO_ROOT / "icp.yaml"
 
     @field_validator("telegram_allowed_user_ids", mode="before")

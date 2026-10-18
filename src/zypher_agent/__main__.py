@@ -107,6 +107,66 @@ def _status(settings: Settings) -> int:
     return 0
 
 
+def _send(settings: Settings, loop: bool) -> int:
+    import time
+
+    from zypher_agent.db import PostgresRepo
+    from zypher_agent.drafting.email import build_footer
+    from zypher_agent.integrations.telegram import TelegramClient
+    from zypher_agent.sender.transport import SMTPTransport
+    from zypher_agent.sender.worker import SendWorker
+
+    _require(settings, "database_url", "telegram_bot_token", "telegram_allowed_user_ids")
+    if not settings.sending_enabled:
+        sys.exit("Sending is switched off. Set SENDING_ENABLED=true in .env when you are ready (run preflight first).")
+    icp = load_icp(settings.icp_path)
+    footer = build_footer(settings, icp)
+    repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
+    tg = TelegramClient(settings.telegram_bot_token.get_secret_value())
+    chat = settings.telegram_approval_chat_id or settings.telegram_allowed_user_ids[0]
+
+    def alert(text: str) -> None:
+        try:
+            tg.send(chat, "🔔 " + text)
+        except Exception as e:  # noqa: BLE001 - an alert that cannot be delivered must not stop the worker
+            print(f"(could not send Telegram alert: {type(e).__name__})")
+
+    worker = SendWorker(repo, SMTPTransport(settings), settings, footer, icp, alert=alert)
+    if settings.send_allowlist:
+        print(f"TEST MODE: only these recipients can receive email: {settings.send_allowlist}")
+    while True:
+        s = worker.run_once()
+        stamp = time.strftime("%H:%M:%S")
+        if s.paused:
+            print(f"[{stamp}] sending is PAUSED: {s.paused}")
+        else:
+            print(f"[{stamp}] sent {s.sent} | waiting {s.deferred} | blocked {len(s.blocked)} | problems {len(s.problems)}")
+            for b in s.blocked:
+                print("   blocked:", b)
+        if not loop:
+            return 0
+        try:
+            time.sleep(60)
+        except KeyboardInterrupt:
+            print("Worker stopped.")
+            return 0
+
+
+def _preflight(settings: Settings) -> int:
+    from zypher_agent.drafting.email import build_footer
+    from zypher_agent.guardrails.checks import footer_problems
+    from zypher_agent.sender.preflight import FAIL, run_preflight
+
+    footer = build_footer(settings, load_icp(settings.icp_path))
+    checks = run_preflight(settings, footer_problems(footer))
+    marks = {"ok": "PASS", "warn": "WARN", "fail": "FAIL"}
+    for c in checks:
+        print(f"  {marks[c.status]}  {c.name:<14} {c.detail}")
+    failed = [c for c in checks if c.status == FAIL]
+    print("\nReady to send." if not failed else f"\nNot ready: fix the {len(failed)} FAIL item(s) above first.")
+    return 1 if failed else 0
+
+
 def _print_summary(s) -> None:
     print(
         f"\nResearched: {s.researched} | disqualified: {s.disqualified} | drafted: {s.drafted} | "
@@ -130,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("bot", help="listen for Telegram button taps and feedback")
     sub.add_parser("refresh", help="redraft every draft still awaiting approval with the current prompt, replace its card")
     sub.add_parser("status", help="show how many leads are at each stage and what needs your attention")
+    sub.add_parser("send", help="one pass: send approved emails that the send policy allows right now")
+    sub.add_parser("worker", help="keep sending approved emails as the policy allows (leave running; Ctrl+C stops)")
+    sub.add_parser("preflight", help="check DNS records and mailbox logins before the first real send (sends nothing)")
     src = sub.add_parser("source", help="find companies on Google Maps (Apify) and add them as new leads")
     src.add_argument("--query", action="append", required=True, help='e.g. "logistics company" (repeat for more)')
     src.add_argument("--location", required=True, help='e.g. "Dubai, United Arab Emirates"')
@@ -149,7 +212,16 @@ def main(argv: list[str] | None = None) -> int:
         for cid, status in statuses.items():
             print(f"  {dry.repo.get_lead(cid).company_name:<24} {status}")
         cost = sum(e["payload"]["cost_usd"] or 0 for e in dry.repo.events if e["type"] == "llm_call")
-        print(f"\nLLM calls: {sum(e['type'] == 'llm_call' for e in dry.repo.events)} (mocked, cost ${cost:.2f}). Emails sent: 0 (there is no sending code in Phase 1).")
+        print(f"\nLLM calls: {sum(e['type'] == 'llm_call' for e in dry.repo.events)} (mocked, cost ${cost:.2f}). Emails sent: 0 so far.")
+        from zypher_agent.dry_run import simulate_sending
+
+        summary, transport = simulate_sending(dry)
+        print(
+            f"\nSending step (fake mail server, Tuesday 10:00 in Dubai): sent {summary.sent}, "
+            f"waiting {summary.deferred}, blocked {len(summary.blocked)}"
+        )
+        for out in transport.sent:
+            print(f"  WOULD SEND to {out.to}: {out.subject}  (fake server: nothing really left this PC)")
         return 0
 
     settings = Settings()
@@ -157,6 +229,10 @@ def main(argv: list[str] | None = None) -> int:
         return _source(settings, args)
     if args.cmd == "status":
         return _status(settings)
+    if args.cmd == "preflight":
+        return _preflight(settings)
+    if args.cmd in ("send", "worker"):
+        return _send(settings, loop=args.cmd == "worker")
     pipeline, service, tg, repo = _live(settings)
     if args.cmd == "refresh":
         print(f"Refreshed {service.refresh_pending()} draft(s). New cards are in Telegram.")

@@ -226,3 +226,61 @@ def test_company_exists_and_contact_email_are_tenant_scoped(two_tenants):
     b.set_contact_email(cid, "hijack@evil.com")  # other tenant: no effect
     a.set_contact_email(cid, f"info@{domain}")
     assert a.get_lead(cid).email == f"info@{domain}"
+
+
+# --- sending queries: same behaviour in memory and in Postgres ---
+
+def approved_message(repo, cid, step=1, version=1):
+    m = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b", step=step, version=version))
+    repo.update_message(m.id, status="approved")
+    repo.log_event("approved", contact_id=cid, message_id=m.id, actor="human:1", payload={"version": version})
+    return m
+
+
+def test_sending_queries(repo):
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 10, 20, 6, 0, tzinfo=timezone.utc)
+    cid, _ = new_lead(repo)
+    m = approved_message(repo, cid)
+    assert [x.id for x in repo.approved_to_send(now)] == [m.id] or m.id in [x.id for x in repo.approved_to_send(now)]
+    assert repo.approved_version(m.id) == 1
+    repo.update_message(m.id, send_after=now + timedelta(hours=1))
+    assert m.id not in [x.id for x in repo.approved_to_send(now)]  # deferred: not due yet
+    repo.update_message(m.id, send_after=None)
+
+    assert repo.claim_for_sending(m.id, "<one@x.test>", "me@x.test") is True
+    assert repo.claim_for_sending(m.id, "<two@x.test>", "me@x.test") is False  # already claimed
+    got = repo.get_message(m.id)
+    assert got.status == "queued" and got.send_attempts == 1 and got.message_id_header == "<one@x.test>"
+    assert m.id not in [x.id for x in repo.approved_to_send(now)]
+
+    day = datetime(2026, 10, 20, 0, 0, tzinfo=timezone.utc)
+    assert repo.send_stats(day).sent_today == 0 and repo.first_message_header(cid) is None
+    repo.update_message(m.id, status="sent", sent_at=now)
+    stats = repo.send_stats(day)
+    assert (stats.sent_today, stats.first_sent_at, stats.last_sent_at) == (1, now, now)
+    assert repo.send_stats(day + timedelta(days=1)).sent_today == 0  # yesterday's sends do not count today
+    assert repo.first_message_header(cid) == ("<one@x.test>", "s")
+
+
+def test_company_contacted_ignores_the_contact_itself(repo):
+    from datetime import datetime, timezone
+    domain = f"{uuid.uuid4().hex[:8]}.test.com"
+    a = repo.upsert_lead(CompanyIn(name="Co", domain=domain, source="test"), ContactIn(email=f"a@{domain}"))
+    b = repo.upsert_lead(CompanyIn(name="Co", domain=domain, source="test"), ContactIn(email=f"b@{domain}"))
+    company = repo.get_lead(a).company_id
+    m = repo.save_message(NewMessage(contact_id=a, subject="s", body="b"))
+    repo.update_message(m.id, status="sent", sent_at=datetime(2026, 10, 20, tzinfo=timezone.utc))
+    assert repo.company_contacted(company, b) is True
+    assert repo.company_contacted(company, a) is False
+
+
+def test_pause_flag_is_per_tenant(two_tenants):
+    a, b = two_tenants
+    assert a.sending_state() == (False, None)
+    a.set_sending_paused(True, "bounce spike")
+    try:
+        assert a.sending_state() == (True, "bounce spike") and b.sending_state()[0] is False
+    finally:
+        a.set_sending_paused(False)
+    assert a.sending_state() == (False, None)

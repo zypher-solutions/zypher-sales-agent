@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-19: Phase 2 sending: one gate, staged rollout, never send twice
+- **Decision:** all sending lives in `zypher_agent/sender/` (a test fails if mail code appears anywhere else). Every message must pass the pure `decide()` policy at send time: approved for this exact version, not paused, not opted out, guardrails re-run, one first email per company, lead-local business hours, warmup-ramped daily cap (5 a day rising to 15, hard ceiling 20, owner may only lower it), spacing of 4 to 12 minutes. A message is claimed atomically before sending. Master switch `SENDING_ENABLED` is off by default; `SEND_ALLOWLIST` limits recipients during the rollout.
+- **Why:** sending is irreversible and we are on the company's main domain; the plan in docs/phase2-plan.md was approved by the owner. DNS check found mail is hosted at GoDaddy (SPF/DMARC already correct), not Google.
+- **Trade-offs:** a connection that dies mid-send is marked failed and never retried (a duplicate cold email is worse than a missed one; the owner is alerted to check the Sent folder). Bounce and reply detection (inbox reading) is not built yet, so until it is, early volume must stay tiny and the owner watches the mailbox by hand.
+
 ## 2026-10-19: Evidence-specific drafts, better inbox choice, Reject only discards the draft
 - **Decision:** (1) a draft must reuse at least two concrete words or numbers from the quotes it cites, else it fails `specific_detail` and Approve is disabled; (2) inbox choice ranks decision makers, then sales/enquiries, then info/contact, and support desks last; (3) Reject sets the lead back to `researched` so a new draft is written, instead of disqualifying the company; (4) research prefers quotes about how the business works and with numbers, never addresses or slogans.
 - **Why:** seen live: three of five drafts were the same email for every freight company (generic "free quote" pitch), and two went to support desks. Reject permanently killing a lead after one weak draft threw away paid-for leads.

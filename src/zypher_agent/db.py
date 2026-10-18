@@ -8,6 +8,7 @@ write is scoped to it, and ids belonging to another tenant behave as if they do
 not exist. Callers never pass a tenant per call, so it cannot be forgotten.
 """
 import uuid
+from datetime import datetime
 from typing import Protocol
 
 import psycopg
@@ -23,12 +24,14 @@ from zypher_agent.models import (
     Message,
     NewMessage,
     ResearchReport,
+    SendStats,
 )
 
 # Columns update_message may touch. Whitelisted because they become SQL identifiers.
 MESSAGE_FIELDS = {
     "subject", "body", "evidence", "version", "status", "feedback",
     "telegram_chat_id", "telegram_message_id",
+    "message_id_header", "in_reply_to", "send_after", "send_attempts", "last_error", "sent_from", "sent_at",
 }
 
 
@@ -50,6 +53,15 @@ class Repository(Protocol):
     def update_message(self, message_id: str, **fields: object) -> Message: ...
     def message_needing_changes(self, chat_id: int) -> Message | None: ...
     def messages_with_status(self, statuses: list[str]) -> list[Message]: ...
+    # sending
+    def approved_to_send(self, now: datetime) -> list[Message]: ...
+    def approved_version(self, message_id: str) -> int | None: ...
+    def claim_for_sending(self, message_id: str, message_id_header: str, from_addr: str) -> bool: ...
+    def send_stats(self, day_start: datetime) -> SendStats: ...
+    def company_contacted(self, company_id: str, except_contact_id: str) -> bool: ...
+    def sending_state(self) -> tuple[bool, str | None]: ...
+    def set_sending_paused(self, paused: bool, reason: str | None = None) -> None: ...
+    def first_message_header(self, contact_id: str) -> tuple[str, str] | None: ...
     def log_event(
         self, type: str, *, contact_id: str | None = None, message_id: str | None = None,
         actor: str = "agent", payload: dict | None = None,
@@ -214,6 +226,9 @@ class PostgresRepo:
             subject=r["subject"] or "", body=r["body"] or "", evidence=r["evidence"] or {},
             version=r["version"], status=r["status"], feedback=r["feedback"],
             telegram_chat_id=r["telegram_chat_id"], telegram_message_id=r["telegram_message_id"],
+            message_id_header=r.get("message_id_header"), in_reply_to=r.get("in_reply_to"),
+            send_after=r.get("send_after"), send_attempts=r.get("send_attempts") or 0,
+            last_error=r.get("last_error"), sent_from=r.get("sent_from"), sent_at=r.get("sent_at"),
         )
 
     def save_message(self, msg: NewMessage) -> Message:
@@ -280,6 +295,69 @@ class PostgresRepo:
         ).fetchone()
         return self._message(r) if r else None
 
+    def approved_to_send(self, now: datetime) -> list[Message]:
+        rows = self._exec(
+            """select * from messages where tenant_id = %s and status = 'approved'
+               and (send_after is null or send_after <= %s) order by created_at""",
+            (self.tenant_id, now),
+        ).fetchall()
+        return [self._message(r) for r in rows]
+
+    def approved_version(self, message_id: str) -> int | None:
+        row = self._exec(
+            """select (payload->>'version')::int as v from events
+               where tenant_id = %s and message_id = %s and type = 'approved' order by id desc limit 1""",
+            (self.tenant_id, message_id),
+        ).fetchone()
+        return row["v"] if row else None
+
+    def claim_for_sending(self, message_id: str, message_id_header: str, from_addr: str) -> bool:
+        """Atomically move approved -> queued. Two workers can never both win, so nothing is sent twice."""
+        row = self._exec(
+            """update messages set status = 'queued', send_attempts = send_attempts + 1,
+                      message_id_header = %s, sent_from = %s, last_error = null
+               where id = %s and tenant_id = %s and status = 'approved' returning id""",
+            (message_id_header, from_addr, message_id, self.tenant_id),
+        ).fetchone()
+        return row is not None
+
+    def send_stats(self, day_start: datetime) -> SendStats:
+        row = self._exec(
+            """select count(*) filter (where sent_at >= %s) as today, min(sent_at) as first, max(sent_at) as last
+               from messages where tenant_id = %s and sent_at is not null and direction = 'outbound'""",
+            (day_start, self.tenant_id),
+        ).fetchone()
+        return SendStats(sent_today=row["today"], first_sent_at=row["first"], last_sent_at=row["last"])
+
+    def company_contacted(self, company_id: str, except_contact_id: str) -> bool:
+        row = self._exec(
+            """select 1 from messages m join contacts c on c.id = m.contact_id
+               where m.tenant_id = %s and c.company_id = %s and c.id <> %s
+                 and m.step = 1 and m.sent_at is not null limit 1""",
+            (self.tenant_id, company_id, except_contact_id),
+        ).fetchone()
+        return row is not None
+
+    def first_message_header(self, contact_id: str) -> tuple[str, str] | None:
+        """(Message-ID, subject) of the first email we sent this contact: follow-ups thread under it."""
+        row = self._exec(
+            """select message_id_header, subject from messages where tenant_id = %s and contact_id = %s
+               and step = 1 and sent_at is not null and message_id_header is not null order by sent_at limit 1""",
+            (self.tenant_id, contact_id),
+        ).fetchone()
+        return (row["message_id_header"], row["subject"]) if row else None
+
+    def sending_state(self) -> tuple[bool, str | None]:
+        row = self._exec("select sending_paused, pause_reason from tenants where id = %s", (self.tenant_id,)).fetchone()
+        return (bool(row["sending_paused"]), row["pause_reason"]) if row else (True, "tenant not found")
+
+    def set_sending_paused(self, paused: bool, reason: str | None = None) -> None:
+        self._exec(
+            "update tenants set sending_paused = %s, pause_reason = %s, "
+            "paused_at = case when %s then now() else null end where id = %s",
+            (paused, reason if paused else None, paused, self.tenant_id),
+        )
+
     def messages_with_status(self, statuses: list[str]) -> list[Message]:
         rows = self._exec(
             "select * from messages where tenant_id = %s and status = any(%s::message_status[]) order by created_at",
@@ -309,6 +387,7 @@ class _Store:
         self.message_tenant: dict[str, str] = {}
         self.suppressed: list[dict] = []
         self.events: list[dict] = []
+        self.paused: dict[str, tuple[bool, str | None]] = {}  # tenant_id -> (paused, reason)
 
 
 class InMemoryRepo:
@@ -458,6 +537,62 @@ class InMemoryRepo:
             and self._store.message_tenant[m.id] == self.tenant_id
         ]
         return found[-1] if found else None
+
+    def approved_to_send(self, now: datetime) -> list[Message]:
+        return [
+            m for m in self.messages.values()
+            if m.status == "approved" and self._store.message_tenant[m.id] == self.tenant_id
+            and (m.send_after is None or m.send_after <= now)
+        ]
+
+    def approved_version(self, message_id: str) -> int | None:
+        found = [
+            e for e in self.events
+            if e["tenant_id"] == self.tenant_id and e["message_id"] == message_id and e["type"] == "approved"
+        ]
+        return found[-1]["payload"].get("version") if found else None
+
+    def claim_for_sending(self, message_id: str, message_id_header: str, from_addr: str) -> bool:
+        m = self._msg(message_id)
+        if m.status != "approved":
+            return False
+        self.messages[message_id] = m.model_copy(update={
+            "status": "queued", "send_attempts": m.send_attempts + 1, "message_id_header": message_id_header,
+            "sent_from": from_addr, "last_error": None,
+        })
+        return True
+
+    def send_stats(self, day_start: datetime) -> SendStats:
+        sent = [
+            m.sent_at for m in self.messages.values()
+            if m.sent_at is not None and self._store.message_tenant[m.id] == self.tenant_id
+        ]
+        return SendStats(
+            sent_today=sum(t >= day_start for t in sent),
+            first_sent_at=min(sent, default=None), last_sent_at=max(sent, default=None),
+        )
+
+    def company_contacted(self, company_id: str, except_contact_id: str) -> bool:
+        return any(
+            m.step == 1 and m.sent_at is not None and self._store.message_tenant[m.id] == self.tenant_id
+            and self.contacts[m.contact_id]["company_id"] == company_id and m.contact_id != except_contact_id
+            for m in self.messages.values()
+        )
+
+    def first_message_header(self, contact_id: str) -> tuple[str, str] | None:
+        sent = sorted(
+            (m for m in self.messages.values()
+             if m.contact_id == contact_id and m.step == 1 and m.sent_at and m.message_id_header
+             and self._store.message_tenant[m.id] == self.tenant_id),
+            key=lambda m: m.sent_at,
+        )
+        return (sent[0].message_id_header, sent[0].subject) if sent else None
+
+    def sending_state(self) -> tuple[bool, str | None]:
+        return self._store.paused.get(self.tenant_id, (False, None))
+
+    def set_sending_paused(self, paused: bool, reason: str | None = None) -> None:
+        self._store.paused[self.tenant_id] = (paused, reason if paused else None)
 
     def messages_with_status(self, statuses: list[str]) -> list[Message]:
         return [

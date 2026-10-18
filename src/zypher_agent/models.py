@@ -1,4 +1,6 @@
 """Domain models shared across modules. These are the contracts between agents."""
+from datetime import datetime
+from datetime import datetime
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
@@ -93,6 +95,38 @@ class Message(NewMessage):
     id: str
     telegram_chat_id: int | None = None
     telegram_message_id: int | None = None
+    # sending (Phase 2)
+    message_id_header: str | None = None
+    in_reply_to: str | None = None
+    send_after: datetime | None = None
+    send_attempts: int = 0
+    last_error: str | None = None
+    sent_from: str | None = None
+    sent_at: datetime | None = None
+
+
+class SendStats(BaseModel):
+    """What the send policy needs to know about sending so far."""
+
+    sent_today: int = 0
+    first_sent_at: datetime | None = None
+    last_sent_at: datetime | None = None
+    # sending (Phase 2)
+    message_id_header: str | None = None
+    in_reply_to: str | None = None
+    send_after: datetime | None = None
+    send_attempts: int = 0
+    last_error: str | None = None
+    sent_from: str | None = None
+    sent_at: datetime | None = None
+
+
+class SendStats(BaseModel):
+    """What the send policy needs to know about sending so far."""
+
+    sent_today: int = 0
+    first_sent_at: datetime | None = None
+    last_sent_at: datetime | None = None
 
 
 class Footer(BaseModel):

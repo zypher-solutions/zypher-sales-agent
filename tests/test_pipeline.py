@@ -107,14 +107,16 @@ def test_one_failing_lead_does_not_stop_the_others():
     assert any(e["type"] == "pipeline_error" for e in run.repo.events)
 
 
-def test_nothing_in_phase_1_can_send_email():
-    forbidden = ("smtplib", "aiosmtplib", "sendmail", "sendgrid", "mailgun", "yagmail", "smtp_host", "starttls")
+def test_only_the_sender_package_can_send_email():
+    """The platform rule: nothing sends outside zypher_agent/sender. This test fails if mail code leaks elsewhere."""
+    forbidden = ("smtplib", "aiosmtplib", "sendmail", "sendgrid", "mailgun", "yagmail", "starttls", "send_message")
+    allowed_dir = SRC / "zypher_agent" / "sender"
     offenders = [
         f"{p.relative_to(SRC)}: {word}"
-        for p in SRC.rglob("*.py") for word in forbidden if word in p.read_text(encoding="utf-8").lower()
+        for p in SRC.rglob("*.py") if allowed_dir not in p.parents
+        for word in forbidden if word in p.read_text(encoding="utf-8").lower()
     ]
     assert offenders == []
-    assert not hasattr(__import__("zypher_agent.config", fromlist=["Settings"]).Settings(_env_file=None), "smtp_host")
 
 
 def test_approving_after_a_rejection_or_unknown_company_is_safe():
@@ -137,3 +139,10 @@ def test_opted_out_leads_are_skipped_at_every_stage():
     acme = next(c for c in run.repo.contacts.values() if c["email"].endswith("@acme-freight-demo.com"))
     assert acme["status"] == "unsubscribed" and summary.suppressed == 1
     assert not any("acme-freight-demo.com" in str(c["user"]) for c in run.llm.calls)  # nothing spent on them
+
+
+def test_dry_run_sends_only_the_approved_email_through_the_fake_server():
+    from zypher_agent.dry_run import simulate_sending
+    run, _ = run_dry_run(echo=False)
+    summary, transport = simulate_sending(run)
+    assert summary.sent == 1 and [e.to for e in transport.sent] == ["rahul@acme-freight-demo.com"]  # not the rejected clinic

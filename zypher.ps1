@@ -6,6 +6,9 @@
 #   .\zypher.ps1 draft 5                                   research 5 leads, write emails, send cards to Telegram
 #   .\zypher.ps1 bot                                       listen for your Telegram taps (leave this window open)
 #   .\zypher.ps1 refresh                                   rewrite drafts that are still waiting, with the latest rules
+#   .\zypher.ps1 preflight                                 check DNS and mailbox login before the first send (sends nothing)
+#   .\zypher.ps1 send                                      one sending pass now (only when SENDING_ENABLED=true)
+#   .\zypher.ps1 worker                                    keep sending as the rules allow (leave open)
 #   .\zypher.ps1 test                                      run the self-checks
 #   .\zypher.ps1 demo                                      the whole pipeline on fake data (free, no keys)
 param(
@@ -28,7 +31,10 @@ switch ($Command) {
     "draft"   { $limit = if ($A) { [int]$A } else { 5 }; & $py -m zypher_agent run --limit $limit }
     "bot"     { & $py -m zypher_agent bot }
     "refresh" { & $py -m zypher_agent refresh }
+    "preflight" { & $py -m zypher_agent preflight }
+    "send"    { & $py -m zypher_agent send }
+    "worker"  { & $py -m zypher_agent worker }
     "test"    { & $py -m pytest -q }
     "demo"    { & $py -m zypher_agent run --dry-run }
-    default   { Get-Content $PSCommandPath -TotalCount 11 | Select-Object -Skip 1 | ForEach-Object { $_ -replace '^# ?', '' } }
+    default   { Get-Content $PSCommandPath -TotalCount 13 | Select-Object -Skip 1 | ForEach-Object { $_ -replace '^# ?', '' } }
 }

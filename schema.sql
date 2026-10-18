@@ -1,4 +1,4 @@
--- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001, 002 and 003).
+-- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001 to 004).
 -- Fresh database: run this file only. Existing database: run the numbered files in migrations/ instead.
 create extension if not exists "pgcrypto";
 
@@ -23,6 +23,9 @@ create table tenants (
   id uuid primary key default gen_random_uuid(),
   slug text unique not null,
   name text not null,
+  sending_paused boolean not null default false,  -- kill switch and automatic stop-loss; only a human clears it
+  pause_reason text,
+  paused_at timestamptz,
   created_at timestamptz default now()
 );
 insert into tenants (id, slug, name)
@@ -116,12 +119,20 @@ create table messages (
   provider_message_id text,
   telegram_chat_id bigint,               -- where the approval message lives, so button presses map back
   telegram_message_id bigint,
+  message_id_header text,                -- the Message-ID we generated; replies are matched on it
+  in_reply_to text,                      -- Message-ID of the previous email in the thread (follow-ups)
+  send_after timestamptz,                -- do not send before this (deferred by window, cap or spacing)
+  send_attempts int not null default 0,
+  last_error text,
+  sent_from text,                        -- the mailbox it left from
   scheduled_at timestamptz,
   sent_at timestamptz,
   created_at timestamptz default now()
 );
 create index messages_tenant_status_idx on messages (tenant_id, status, scheduled_at);
 create index messages_telegram_idx on messages (telegram_chat_id, status);
+create unique index messages_message_id_header_key on messages (tenant_id, message_id_header) where message_id_header is not null;
+create index messages_send_queue_idx on messages (tenant_id, status, send_after);
 
 -- Suppression is per tenant: opting out of one business is not opting out of another.
 create table suppression_list (

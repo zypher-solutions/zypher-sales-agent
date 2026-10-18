@@ -11,6 +11,7 @@ Rules:
   * Approve is hidden on a draft that failed the guardrails, and re-checked when pressed.
 """
 import uuid
+from collections.abc import Callable
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -27,7 +28,8 @@ CARD_LIMIT = 3900  # Telegram's hard limit is 4096 characters per message
 HELP = (
     "Tap Suggest changes under a draft, then type what to change. Approve and Reject are buttons.\n"
     "/suppress name@company.com  never contact this address again\n"
-    "/suppress company.com  never contact anyone at this domain again"
+    "/suppress company.com  never contact anyone at this domain again\n"
+    "/pause  stop all sending now    /resume  start again    /status  what is waiting and sent"
 )
 
 
@@ -112,6 +114,7 @@ class ApprovalService:
         # Cards go to a shared group if configured (partners), else the first allowed user's private chat.
         # Either way, only allowlisted user ids can press buttons or give feedback.
         self.chat_id = chat_id if chat_id is not None else allowed_user_ids[0]
+        self.sending_status: Callable[[], str] | None = None  # set by the CLI: today's count and cap for /status
 
     # ---------- outgoing ----------
 
@@ -219,8 +222,12 @@ class ApprovalService:
         if not self._authorized(m.get("from", {}).get("id"), "message"):
             return
         chat_id, user, text = m["chat"]["id"], m["from"]["id"], m["text"].strip()
-        if text.split(" ")[0].split("@")[0] == "/suppress":  # "/suppress@BotName x" is how groups send it
+        command = text.split(" ")[0].split("@")[0]  # "/suppress@BotName x" is how groups send it
+        if command == "/suppress":
             self._suppress(chat_id, user, text.split(maxsplit=1)[1] if " " in text else "")
+            return
+        if command in ("/pause", "/resume", "/status"):
+            self._control(command, chat_id, user)
             return
         msg = None if text.startswith("/") else self.repo.message_needing_changes(chat_id)
         if msg is None:
@@ -291,6 +298,29 @@ class ApprovalService:
             self._send_card(new, lead)
             count += 1
         return count
+
+    def alert(self, text: str) -> None:
+        """Tell the owner something that needs attention (bounce, failed send, paused sending)."""
+        self.notifier.send(self.chat_id, "🔔 " + text)
+
+    def _control(self, command: str, chat_id: int, user: int) -> None:
+        """Pause, resume or inspect sending. Only a human can resume after a stop-loss pause."""
+        if command == "/pause":
+            self.repo.set_sending_paused(True, f"paused by human:{user}")
+            self.repo.log_event("sending_paused", actor=f"human:{user}", payload={"reason": "manual"})
+            self.notifier.send(chat_id, "⏸ Sending is paused. Nothing will leave until you send /resume.")
+        elif command == "/resume":
+            self.repo.set_sending_paused(False)
+            self.repo.log_event("sending_resumed", actor=f"human:{user}")
+            self.notifier.send(chat_id, "▶️ Sending resumed. The worker picks up approved emails on its next pass.")
+        else:
+            paused, reason = self.repo.sending_state()
+            line = f"⏸ PAUSED: {reason}" if paused else "▶️ Sending is on."
+            waiting = len(self.repo.messages_with_status(["awaiting_approval", "needs_changes"]))
+            ready = len(self.repo.messages_with_status(["approved"]))
+            sent = len(self.repo.messages_with_status(["sent"]))
+            extra = f"\n{self.sending_status()}" if self.sending_status else ""
+            self.notifier.send(chat_id, f"{line}\nWaiting for your approval: {waiting}\nApproved, waiting to send: {ready}\nSent so far: {sent}{extra}")
 
     def _suppress(self, chat_id: int, user: int, target: str) -> None:
         """Opt-outs are honoured immediately: research, drafting, approval (and later sending) all check this list."""

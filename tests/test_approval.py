@@ -272,3 +272,32 @@ def test_card_separates_the_email_from_the_reviewers_notes():
     assert "Subject:" in email and FOOTER.postal_address in email  # the footer is part of what is sent
     assert "Evidence:" not in email and "Phone" not in email and "Passed all checks" not in email
     assert text.index(END_BANNER) < text.index(NOTES_BANNER) < text.index("Evidence:")
+
+
+# ---------- sending controls from Telegram ----------
+
+def test_pause_resume_and_status_commands():
+    repo, notifier, service, _, _ = world()
+    service.sending_status = lambda: "Sent today: 2 of 5"
+    say(service, "/pause")
+    assert repo.sending_state()[0] is True and "paused" in notifier.sent[-1]["text"].lower()
+    say(service, "/status")
+    text = notifier.sent[-1]["text"]
+    assert "PAUSED" in text and "Waiting for your approval: 1" in text and "Sent today: 2 of 5" in text
+    say(service, "/resume")
+    assert repo.sending_state() == (False, None)
+    say(service, "/status")
+    assert "Sending is on" in notifier.sent[-1]["text"]
+
+
+def test_only_allowed_users_can_pause_or_resume():
+    repo, _, service, _, _ = world()
+    say(service, "/pause", user=666)
+    assert repo.sending_state()[0] is False
+    assert any(e["type"] == "unauthorized" for e in repo.events)
+
+
+def test_alert_goes_to_the_approval_chat():
+    _, notifier, service, _, _ = world()
+    service.alert("Bounced: x@y.com")
+    assert notifier.sent[-1]["chat_id"] == service.chat_id and "Bounced" in notifier.sent[-1]["text"]

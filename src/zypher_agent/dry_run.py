@@ -186,3 +186,21 @@ def run_dry_run(echo: bool = True, limit: int = 10) -> tuple[DryRun, RunSummary]
         print("\n=== You review Sunrise Clinic: reject ===")
     press(run, "Sunrise Family", "reject")
     return run, summary
+
+
+def simulate_sending(run: DryRun):
+    """Run the real send worker against a fake mail server, at a moment inside the UAE business window."""
+    import random
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from zypher_agent.config import Settings
+    from zypher_agent.sender.transport import FakeTransport
+    from zypher_agent.sender.worker import SendWorker
+
+    transport = FakeTransport()
+    settings = Settings(_env_file=None, sending_enabled=True)
+    worker = SendWorker(run.repo, transport, settings, DRY_FOOTER, run.pipeline.icp, rng=random.Random(0))
+    tuesday_10am_dubai = datetime(2026, 10, 20, 10, 0, tzinfo=ZoneInfo("Asia/Dubai")).astimezone(timezone.utc)
+    summary = worker.run_once(tuesday_10am_dubai)
+    return summary, transport
