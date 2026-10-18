@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from zypher_agent.config import Settings
 from zypher_agent.db import Repository
+from zypher_agent.drafting.email import render_email, render_email_html
 from zypher_agent.guardrails.checks import check_draft
 from zypher_agent.models import EmailDraft, Footer, Hypothesis, Lead, Message
 from zypher_agent.sender.policy import SendContext, decide
@@ -110,6 +111,20 @@ class SendWorker:
         self._send(msg, lead, now, summary)
         return None
 
+    def _styled_copy(self, msg: Message, lead: Lead) -> str | None:
+        """A styled version of the approved email, but only if it says EXACTLY what was approved.
+
+        If the signature settings changed since approval, the plain text differs, so we send the approved
+        plain text alone rather than a styled version of something nobody approved.
+        """
+        try:
+            draft = EmailDraft(**msg.evidence["draft"])
+            if render_email(draft, lead.contact_name, self.footer) != msg.body:
+                return None
+            return render_email_html(draft, lead.contact_name, self.footer)
+        except Exception:  # noqa: BLE001 - styling is optional; the plain email always goes
+            return None
+
     def _violations(self, msg: Message) -> list[str]:
         """Re-run today's guardrails on the stored draft: a rule tightened after approval still applies."""
         ev = msg.evidence
@@ -128,7 +143,7 @@ class SendWorker:
             subject = first[1] if first and first[1].lower().startswith("re:") else f"Re: {first[1] if first else msg.subject}"
         out = OutgoingEmail(
             to=lead.email, subject=subject, body=msg.body, message_id=header, from_addr=from_addr,
-            from_name=self.footer.sender_name, in_reply_to=in_reply_to,
+            from_name=self.footer.sender_name, in_reply_to=in_reply_to, html=self._styled_copy(msg, lead),
         )
         try:
             self.transport.send(out)

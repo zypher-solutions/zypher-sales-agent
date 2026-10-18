@@ -50,6 +50,7 @@ class OutgoingEmail:
     from_name: str = ""
     in_reply_to: str | None = None
     references: str | None = None
+    html: str | None = None  # a styled copy of the SAME text; the plain part above is always sent too
 
 
 class EmailTransport(Protocol):
@@ -62,7 +63,7 @@ def new_message_id(from_addr: str) -> str:
 
 
 def build_mime(email: OutgoingEmail, now: datetime | None = None) -> EmailMessage:
-    """Plain text only: no HTML, no images, no tracking pixel, no links added by us."""
+    """Plain text always; an optional styled HTML copy of the same words. Never images, never a tracking pixel."""
     msg = EmailMessage()
     msg["From"] = formataddr((email.from_name, email.from_addr)) if email.from_name else email.from_addr
     msg["To"] = email.to
@@ -76,6 +77,8 @@ def build_mime(email: OutgoingEmail, now: datetime | None = None) -> EmailMessag
     # One-click opt-out without a website: a reply to this address with the word "unsubscribe".
     msg["List-Unsubscribe"] = f"<mailto:{email.from_addr}?subject=unsubscribe>"
     msg.set_content(email.body, charset="utf-8")
+    if email.html:
+        msg.add_alternative(email.html, subtype="html")
     return msg
 
 

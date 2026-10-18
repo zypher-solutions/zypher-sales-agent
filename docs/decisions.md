@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-19: Company-style signature, sent as plain text plus a styled copy of the same words
+- **Decision:** the signature follows the company's mail layout (bold name | title, italic company, Email | Office | Website, small-print confidentiality notice) from `.env` (`SENDER_*`). Each email is multipart: the approved plain text and a styled HTML copy. A test proves the HTML says exactly the same words as the plain text, and the worker sends the styled copy only if it matches what the owner approved (otherwise plain only). The HTML never has images or tracking, and model text is escaped. Opt-out line and postal address stay under the signature (law and platform rule).
+- **Left out on purpose:** the logo image. Images in cold email raise spam scores and the logo adds a hosted or embedded picture to every first touch. Revisit after a few weeks of clean sending with replies.
+- **Trade-off:** two links (mailto and website) appear in the styled signature; the first-touch rule against links covers the model's body text, which is still enforced.
+
 ## 2026-10-19: Inbox handling reads only mail about our emails, and starts from now
 - **Decision:** `sender/inbox.py` polls the sending mailbox read-only over IMAP (nothing deleted, moved or flagged). The first run records the newest message and never reads history. A mail is acted on only if it references one of our Message-IDs, is a delivery failure naming one, or comes from an address we emailed; everything else is counted and skipped without being stored, logged or shown. Hard bounce: suppress the address, mark the lead, alert. Clear opt-out (keywords, or the model says unsubscribe/not_interested): suppress at once and tell the owner. Spam complaint: suppress and pause all sending. Any other reply: stop the sequence, save the text, alert with the text for a human to answer. Two hard bounces in the last 100 sends (or over 2% from 100 sends) pause sending automatically; only a human resumes. If the mailbox cannot be read, the worker skips sending that cycle.
 - **Why:** the mailbox is the CEO's real inbox, so restraint is the privacy rule; bounces and complaints are what damage a main domain.

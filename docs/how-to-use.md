@@ -35,6 +35,9 @@ You never need Claude to run this day to day. Open a terminal in the project fol
 
 Anyone who replies "no thanks" should be added with `/suppress` straight away.
 
+## Your signature
+Set in `.env`: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_EMAIL`, `SENDER_PHONE`, `SENDER_WEBSITE`, `SENDER_DISCLAIMER`. Every email shows it the same way as your normal company signature. After changing it, run `.\zypher.ps1 refresh` so drafts that are still waiting use the new signature.
+
 ## Sending (switched off until you turn it on)
 1. Put `MAIL_PASSWORD=` (your mailbox password) in `.env` yourself. Never paste it anywhere else.
 2. `.\zypher.ps1 preflight` checks DNS, SPF, DMARC and logs in to your mailbox. It sends nothing. Fix every FAIL first.

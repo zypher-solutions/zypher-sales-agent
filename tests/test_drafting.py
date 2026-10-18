@@ -116,3 +116,51 @@ def test_build_footer_from_settings_marks_placeholders():
     footer = build_footer(Settings(_env_file=None), ICP)
     assert footer.company_name == "Zypher Software Solutions LLP"
     assert "TODO" in footer.opt_out_line
+
+
+# ---------- the signature, plain and styled ----------
+
+def _footer(**kw):
+    return FOOTER.model_copy(update={
+        "sender_title": "Chief Executive Officer", "sender_phone": "+91 80757 25045", "sender_website": "www.zypher-solutions.com",
+        "sender_disclaimer": "IMPORTANT: This email is confidential.", **kw})
+
+
+def _words(text: str) -> list[str]:
+    import re
+    return re.findall(r"\w+", text)  # punctuation and separators may differ; the WORDS may not
+
+
+def test_plain_signature_matches_the_company_layout():
+    from zypher_agent.drafting.email import render_email
+    text = render_email(GOOD, "Ann Lee", _footer())
+    tail = text.split("\n\nBest,\n")[1].split("\n")
+    assert tail[0] == "Muhammed Hasheem | Chief Executive Officer"
+    assert tail[1] == FOOTER.company_name
+    assert tail[2] == f"Email: {FOOTER.sender_email} | Office: +91 80757 25045 | Website: www.zypher-solutions.com"
+    assert text.endswith("IMPORTANT: This email is confidential.") and FOOTER.opt_out_line in text and FOOTER.postal_address in text
+
+
+def test_signature_without_optional_parts_has_no_gaps_or_empty_labels():
+    from zypher_agent.drafting.email import render_email
+    text = render_email(GOOD, "Ann Lee", _footer(sender_phone="", sender_website="", sender_disclaimer=""))
+    assert "Office:" not in text and "Website:" not in text and "||" not in text and "\n\n\n" not in text
+
+
+def test_styled_copy_says_exactly_what_the_plain_text_says():
+    from bs4 import BeautifulSoup
+
+    from zypher_agent.drafting.email import render_email, render_email_html
+    f = _footer()
+    plain = render_email(GOOD, "Ann Lee", f)
+    soup = BeautifulSoup(render_email_html(GOOD, "Ann Lee", f), "html.parser")
+    assert _words(soup.get_text(" ")) == _words(plain)  # same words, same order: nothing added or hidden
+    assert soup.find("a", href=f"mailto:{FOOTER.sender_email}") and soup.find("a", href="https://www.zypher-solutions.com")
+    assert not soup.find("img") and not soup.find("script")  # no images, no tracking pixel
+
+
+def test_html_escapes_text_from_the_model():
+    from zypher_agent.drafting.email import render_email_html
+    evil = GOOD.model_copy(update={"body": GOOD_BODY + ' <img src="http://track.me/p.gif"> <script>x</script>'})
+    out = render_email_html(evil, "Ann", _footer())
+    assert "<img" not in out and "<script" not in out and "&lt;img" in out

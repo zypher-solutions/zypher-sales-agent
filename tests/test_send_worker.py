@@ -237,3 +237,23 @@ def test_unknown_country_blocks_instead_of_guessing(country):
     assert s.sent == 0 and any("country" in b for b in s.blocked)
 
 
+
+
+# ---------- the styled copy ----------
+
+def test_the_email_carries_a_styled_copy_of_the_approved_text():
+    from zypher_agent.drafting.email import render_email
+    w = World()
+    msg = w.message(w.lead())
+    w.run()
+    out = w.transport.sent[0]
+    assert out.body == msg.body and out.html and "Muhammed Hasheem" in out.html
+    assert out.body == render_email(GOOD, "Ann Lee", FOOTER)
+
+
+def test_if_the_signature_changed_after_approval_only_the_approved_plain_text_goes():
+    w = World()
+    w.message(w.lead())
+    w.worker.footer = FOOTER.model_copy(update={"sender_phone": "+91 99999 99999"})  # settings changed since approval
+    w.run()
+    assert w.transport.sent[0].html is None and "99999" not in w.transport.sent[0].body

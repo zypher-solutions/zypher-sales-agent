@@ -6,6 +6,7 @@ Division of labour:
     forgotten, reworded or invented.
   * `check_draft` (plain code) decides if the result obeys icp.yaml. The LLM never grades itself.
 """
+import html
 from dataclasses import dataclass
 
 from zypher_agent.config import Icp, Settings, first_touch_offer
@@ -39,6 +40,7 @@ def build_footer(settings: Settings, icp: Icp) -> Footer:
         sender_title=settings.sender_title, sender_email=settings.sender_email,
         company_name=icp.company["name"], postal_address=settings.sender_postal_address,
         sender_phone=settings.sender_phone, sender_website=settings.sender_website,
+        sender_disclaimer=settings.sender_disclaimer,
     )
 
 
@@ -53,13 +55,61 @@ def greeting_for(contact_name: str | None) -> str:
     return f"Hi {first},"
 
 
+def _contact_parts(footer: Footer) -> list[tuple[str, str]]:
+    return [(label, value) for label, value in (
+        ("Email", footer.sender_email), ("Office", footer.sender_phone), ("Website", footer.sender_website)) if value]
+
+
 def render_email(draft: EmailDraft, contact_name: str | None, footer: Footer) -> str:
-    greeting = greeting_for(contact_name)
-    contact = " | ".join(x for x in (footer.sender_email, footer.sender_phone, footer.sender_website) if x)
+    """The plain-text email: exactly what the owner approves in Telegram and what the plain part of the mail says."""
+    contact = " | ".join(f"{label}: {value}" for label, value in _contact_parts(footer))
+    lines = [
+        f"{greeting_for(contact_name)}", "", draft.body.strip(), "", "Best,",
+        f"{footer.sender_name} | {footer.sender_title}", footer.company_name, contact, "",
+        footer.opt_out_line, footer.postal_address,
+    ]
+    if footer.sender_disclaimer:
+        lines += ["", footer.sender_disclaimer]
+    return "\n".join(line for i, line in enumerate(lines) if line or lines[i - 1] != "" or i == 0).strip()
+
+
+def _href(value: str) -> str:
+    return value if value.startswith(("http://", "https://")) else f"https://{value}"
+
+
+def render_email_html(draft: EmailDraft, contact_name: str | None, footer: Footer) -> str:
+    """The same email with the company signature styled (bold name, teal company, small print).
+
+    It says exactly the same words as `render_email`; a test enforces that. No images and no tracking.
+    """
+    e = html.escape
+    para = 'style="margin:0 0 14px 0"'
+    body = "".join(f"<p {para}>{e(p).replace(chr(10), '<br>')}</p>" for p in
+                   [greeting_for(contact_name), *draft.body.strip().split("\n\n")])
+    link = 'style="color:#0f5f5f;text-decoration:underline"'
+    parts = []
+    for label, value in _contact_parts(footer):
+        if label == "Email":
+            shown = f'<a href="mailto:{e(value)}" {link}>{e(value)}</a>'
+        elif label == "Website":
+            shown = f'<a href="{e(_href(value))}" {link}>{e(value)}</a>'
+        else:
+            shown = e(value)
+        parts.append(f"<b>{label}</b>: {shown}")
+    disclaimer = (
+        f'<div style="font-size:11px;color:#1d77c8;margin-top:10px">{e(footer.sender_disclaimer)}</div>'
+        if footer.sender_disclaimer else ""
+    )
     return (
-        f"{greeting}\n\n{draft.body.strip()}\n\nBest,\n{footer.sender_name}\n"
-        f"{footer.sender_title}, {footer.company_name}\n{contact}\n\n"
-        f"{footer.opt_out_line}\n{footer.postal_address}"
+        '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2933;line-height:1.5">'
+        f"{body}<p {para}>Best,</p>"
+        f'<div><span style="font-size:18px;font-weight:bold;color:#1f2a37">{e(footer.sender_name)}</span>'
+        f'<span style="color:#9ca3af"> | </span><span style="font-size:15px">{e(footer.sender_title)}</span></div>'
+        f'<div style="margin:6px 0;font-style:italic;color:#0f766e;font-size:15px">{e(footer.company_name)}</div>'
+        f'<div>{" <span style=\"color:#9ca3af\">|</span> ".join(parts)}</div>'
+        '<div style="border-top:1px solid #e5e7eb;margin:16px 0 8px 0"></div>'
+        f'<div style="font-size:12px;color:#6b7280">{e(footer.opt_out_line)}<br>{e(footer.postal_address)}</div>'
+        f"{disclaimer}</div>"
     )
 
 

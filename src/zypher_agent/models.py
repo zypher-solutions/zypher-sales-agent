@@ -143,6 +143,7 @@ class Footer(BaseModel):
     # Optional contact lines under the signature. Not required by law, so not checked as missing.
     sender_phone: str = ""
     sender_website: str = ""
+    sender_disclaimer: str = ""  # small print under the signature (the company's confidentiality notice)
 
     REQUIRED: ClassVar[tuple[str, ...]] = ("opt_out_line", "sender_name", "sender_title", "sender_email", "company_name", "postal_address")
 

@@ -155,3 +155,10 @@ def test_preflight_settings_checks():
     s = Settings(_env_file=None, sender_timezone="Nowhere/Land", daily_send_cap=3)
     got = {c.name: c for c in check_settings(s, ["opt_out_line is empty"])}
     assert got["Email footer"].status == FAIL and got["Timezone"].status == FAIL and "3 a day" in got["Daily cap"].detail
+
+
+def test_a_styled_copy_makes_a_two_part_message_with_the_plain_text_first():
+    m = build_mime(email(html="<p>Hi</p>"))
+    assert m.get_content_type() == "multipart/alternative"
+    kinds = [p.get_content_type() for p in m.iter_parts()]
+    assert kinds == ["text/plain", "text/html"] and not any(k.startswith("image/") for k in kinds)
