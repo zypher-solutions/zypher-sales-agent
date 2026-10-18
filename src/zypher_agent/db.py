@@ -62,6 +62,12 @@ class Repository(Protocol):
     def sending_state(self) -> tuple[bool, str | None]: ...
     def set_sending_paused(self, paused: bool, reason: str | None = None) -> None: ...
     def first_message_header(self, contact_id: str) -> tuple[str, str] | None: ...
+    # inbox
+    def message_by_header(self, header: str) -> Message | None: ...
+    def lead_by_email(self, email: str) -> Lead | None: ...
+    def recent_sent(self, limit: int) -> list[Message]: ...
+    def inbox_cursor(self) -> tuple[int, int] | None: ...
+    def set_inbox_cursor(self, uidvalidity: int, uid: int) -> None: ...
     def log_event(
         self, type: str, *, contact_id: str | None = None, message_id: str | None = None,
         actor: str = "agent", payload: dict | None = None,
@@ -226,6 +232,7 @@ class PostgresRepo:
             subject=r["subject"] or "", body=r["body"] or "", evidence=r["evidence"] or {},
             version=r["version"], status=r["status"], feedback=r["feedback"],
             telegram_chat_id=r["telegram_chat_id"], telegram_message_id=r["telegram_message_id"],
+            direction=r.get("direction") or "outbound", reply_class=r.get("reply_class"),
             message_id_header=r.get("message_id_header"), in_reply_to=r.get("in_reply_to"),
             send_after=r.get("send_after"), send_attempts=r.get("send_attempts") or 0,
             last_error=r.get("last_error"), sent_from=r.get("sent_from"), sent_at=r.get("sent_at"),
@@ -235,12 +242,12 @@ class PostgresRepo:
         # insert ... select: inserts nothing unless the contact belongs to this tenant.
         row = self._exec(
             """insert into messages (tenant_id, contact_id, step, channel, subject, body, evidence,
-                                     version, status, feedback)
-               select %s, c.id, %s, %s::channel_type, %s, %s, %s, %s, %s::message_status, %s
+                                     version, status, feedback, direction, reply_class)
+               select %s, c.id, %s, %s::channel_type, %s, %s, %s, %s, %s::message_status, %s, %s, %s::reply_class
                from contacts c where c.id = %s and c.tenant_id = %s
                returning *""",
             (self.tenant_id, msg.step, msg.channel, msg.subject, msg.body, Jsonb(msg.evidence),
-             msg.version, msg.status, msg.feedback, msg.contact_id, self.tenant_id),
+             msg.version, msg.status, msg.feedback, msg.direction, msg.reply_class, msg.contact_id, self.tenant_id),
         ).fetchone()
         if row is None:
             raise KeyError(msg.contact_id)
@@ -256,7 +263,7 @@ class PostgresRepo:
 
     def latest_message(self, contact_id: str) -> Message | None:
         r = self._exec(
-            """select * from messages where contact_id = %s and tenant_id = %s
+            """select * from messages where contact_id = %s and tenant_id = %s and direction = 'outbound'
                order by created_at desc limit 1""",
             (contact_id, self.tenant_id),
         ).fetchone()
@@ -337,6 +344,39 @@ class PostgresRepo:
             (self.tenant_id, company_id, except_contact_id),
         ).fetchone()
         return row is not None
+
+    def message_by_header(self, header: str) -> Message | None:
+        r = self._exec(
+            "select * from messages where tenant_id = %s and message_id_header = %s", (self.tenant_id, header)
+        ).fetchone()
+        return self._message(r) if r else None
+
+    def lead_by_email(self, email: str) -> Lead | None:
+        r = self._exec(
+            self._LEAD_SQL + " and lower(c.email) = lower(%s) order by c.created_at desc limit 1",
+            (self.tenant_id, self.tenant_id, email),
+        ).fetchone()
+        return self._lead(r) if r else None
+
+    def recent_sent(self, limit: int) -> list[Message]:
+        rows = self._exec(
+            """select * from messages where tenant_id = %s and direction = 'outbound' and sent_at is not null
+               order by sent_at desc limit %s""",
+            (self.tenant_id, limit),
+        ).fetchall()
+        return [self._message(r) for r in rows]
+
+    def inbox_cursor(self) -> tuple[int, int] | None:
+        """(UIDVALIDITY, last UID handled) of the mailbox poll. Kept in the event log: no extra table."""
+        r = self._exec(
+            """select (payload->>'uidvalidity')::bigint v, (payload->>'uid')::bigint u from events
+               where tenant_id = %s and type = 'inbox_cursor' order by id desc limit 1""",
+            (self.tenant_id,),
+        ).fetchone()
+        return (r["v"], r["u"]) if r else None
+
+    def set_inbox_cursor(self, uidvalidity: int, uid: int) -> None:
+        self.log_event("inbox_cursor", actor="system", payload={"uidvalidity": uidvalidity, "uid": uid})
 
     def first_message_header(self, contact_id: str) -> tuple[str, str] | None:
         """(Message-ID, subject) of the first email we sent this contact: follow-ups thread under it."""
@@ -515,7 +555,8 @@ class InMemoryRepo:
     def latest_message(self, contact_id: str) -> Message | None:
         found = [
             m for m in self.messages.values()
-            if m.contact_id == contact_id and self._store.message_tenant[m.id] == self.tenant_id
+            if m.contact_id == contact_id and m.direction == "outbound"
+            and self._store.message_tenant[m.id] == self.tenant_id
         ]
         return found[-1] if found else None
 
@@ -578,6 +619,29 @@ class InMemoryRepo:
             and self.contacts[m.contact_id]["company_id"] == company_id and m.contact_id != except_contact_id
             for m in self.messages.values()
         )
+
+    def message_by_header(self, header: str) -> Message | None:
+        return next(
+            (m for m in self.messages.values()
+             if m.message_id_header == header and self._store.message_tenant[m.id] == self.tenant_id), None,
+        )
+
+    def lead_by_email(self, email: str) -> Lead | None:
+        mine = [c for c in self.contacts.values()
+                if c["tenant_id"] == self.tenant_id and (c["email"] or "").lower() == email.lower()]
+        return self._lead(mine[-1]) if mine else None
+
+    def recent_sent(self, limit: int) -> list[Message]:
+        sent = [m for m in self.messages.values()
+                if m.direction == "outbound" and m.sent_at is not None and self._store.message_tenant[m.id] == self.tenant_id]
+        return sorted(sent, key=lambda m: m.sent_at, reverse=True)[:limit]
+
+    def inbox_cursor(self) -> tuple[int, int] | None:
+        found = [e for e in self.events if e["tenant_id"] == self.tenant_id and e["type"] == "inbox_cursor"]
+        return (found[-1]["payload"]["uidvalidity"], found[-1]["payload"]["uid"]) if found else None
+
+    def set_inbox_cursor(self, uidvalidity: int, uid: int) -> None:
+        self.log_event("inbox_cursor", actor="system", payload={"uidvalidity": uidvalidity, "uid": uid})
 
     def first_message_header(self, contact_id: str) -> tuple[str, str] | None:
         sent = sorted(

@@ -44,6 +44,15 @@ Anyone who replies "no thanks" should be added with `/suppress` straight away.
 6. Only then clear `SEND_ALLOWLIST` to go live. The rules (business hours in the lead's country, 5 emails a day at first, spacing, never twice) apply automatically.
 Telegram controls: `/pause`, `/resume`, `/status`.
 
+## What happens after an email is sent
+Every minute the worker reads your mailbox (read-only, and only mail about the emails we sent):
+- **A bounce:** the address is added to the do-not-contact list and you get an alert. Two bounces in a short run pause all sending automatically.
+- **"No thanks" or "unsubscribe":** added to the do-not-contact list at once, and you are told.
+- **"This is spam":** added to the list and sending is paused.
+- **Any other reply:** the follow-ups stop and the full text is sent to your Telegram with a label (interested, question, not now...). You answer it yourself from your own mailbox.
+- **Out-of-office:** noted, nothing else happens.
+Mail that has nothing to do with our emails is never stored, logged or shown. `.\zypher.ps1 inbox` reads the mailbox once by hand.
+
 ## Other commands
 - `.\zypher.ps1 refresh` rewrites every draft still waiting with the latest rules (use after changing wording rules).
 - `.\zypher.ps1 demo` runs everything on fake data, free, with no keys. `.\zypher.ps1 test` runs the self-checks.

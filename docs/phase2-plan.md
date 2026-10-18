@@ -1,6 +1,6 @@
 # Phase 2 plan: sending, limits, follow-ups, bounces
 
-Status: APPROVED 2026-10-19. Built so far: steps 1 to 3 (policy, transport, preflight, worker, Telegram pause/resume/status, dry run). Not built yet: step 4 (inbox: bounces, replies, opt-outs, stop-loss) and step 5 (follow-up scheduling). Sending stays OFF (`SENDING_ENABLED=false`) until preflight passes and the owner switches it on.
+Status: APPROVED 2026-10-19. Built so far: steps 1 to 4 (policy, transport, preflight, worker, Telegram pause/resume/status, dry run, inbox handling with bounces, replies, opt-outs and automatic stop-loss). Not built yet: step 5 (follow-up scheduling). Verified live on 2026-10-19: preflight passes and a test email arrived with SPF, DKIM and DMARC all PASS (Gmail put it in Promotions, normal for a new sender). Sending stays OFF (`SENDING_ENABLED=false`) until preflight passes and the owner switches it on.
 
 ## Facts found on 2026-10-19 (DNS lookup of zypher-solutions.com)
 - Mail is hosted at **GoDaddy** (`MX: mailstore1.secureserver.net`), not Google Workspace.

@@ -284,3 +284,44 @@ def test_pause_flag_is_per_tenant(two_tenants):
     finally:
         a.set_sending_paused(False)
     assert a.sending_state() == (False, None)
+
+
+# --- inbox queries ---
+
+def test_inbox_queries(repo):
+    from datetime import datetime, timezone
+    cid, domain = new_lead(repo, email=f"Owner@{uuid.uuid4().hex[:6]}.test.com")
+    lead = repo.get_lead(cid)
+    out = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    repo.update_message(out.id, status="sent", sent_at=datetime(2026, 10, 20, tzinfo=timezone.utc), message_id_header=f"<{uuid.uuid4().hex}@x.test>")
+    sent = repo.get_message(out.id)
+    assert repo.message_by_header(sent.message_id_header).id == out.id and repo.message_by_header("<nope@x>") is None
+    assert repo.lead_by_email(lead.email.upper()).contact_id == cid  # case-insensitive
+    assert repo.lead_by_email("nobody@nowhere.test") is None
+    assert out.id in [m.id for m in repo.recent_sent(100)]
+
+    # a reply we received must never be mistaken for our own latest email
+    inbound = repo.save_message(NewMessage(contact_id=cid, subject="Re: s", body="yes", direction="inbound", status="delivered", reply_class="interested"))
+    got = repo.get_message(inbound.id)
+    assert got.direction == "inbound" and got.reply_class == "interested"
+    assert repo.latest_message(cid).id == out.id
+    assert inbound.id not in [m.id for m in repo.recent_sent(100)]
+
+
+def test_inbox_cursor_roundtrip(repo):
+    before = repo.inbox_cursor()
+    repo.set_inbox_cursor(7, 100)
+    repo.set_inbox_cursor(7, 105)
+    assert repo.inbox_cursor() == (7, 105)
+    if before is not None:  # live-shaped database: leave the cursor as we found it
+        repo.set_inbox_cursor(*before)
+
+
+def test_inbox_matching_is_tenant_scoped(two_tenants):
+    from datetime import datetime, timezone
+    a, b = two_tenants
+    cid, _ = new_lead(a, email=f"o@{uuid.uuid4().hex[:6]}.test.com")
+    header = f"<{uuid.uuid4().hex}@x.test>"
+    m = a.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    a.update_message(m.id, status="sent", sent_at=datetime(2026, 10, 20, tzinfo=timezone.utc), message_id_header=header)
+    assert b.message_by_header(header) is None and b.lead_by_email(a.get_lead(cid).email) is None and b.recent_sent(100) == []

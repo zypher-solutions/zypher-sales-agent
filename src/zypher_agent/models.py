@@ -89,6 +89,8 @@ class NewMessage(BaseModel):
     version: int = 1
     status: str = "draft"
     feedback: str | None = None
+    direction: str = "outbound"  # "inbound" rows are replies we received
+    reply_class: str | None = None  # set on inbound rows by the reply classifier
 
 
 class Message(NewMessage):

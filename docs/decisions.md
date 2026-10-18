@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-19: Inbox handling reads only mail about our emails, and starts from now
+- **Decision:** `sender/inbox.py` polls the sending mailbox read-only over IMAP (nothing deleted, moved or flagged). The first run records the newest message and never reads history. A mail is acted on only if it references one of our Message-IDs, is a delivery failure naming one, or comes from an address we emailed; everything else is counted and skipped without being stored, logged or shown. Hard bounce: suppress the address, mark the lead, alert. Clear opt-out (keywords, or the model says unsubscribe/not_interested): suppress at once and tell the owner. Spam complaint: suppress and pause all sending. Any other reply: stop the sequence, save the text, alert with the text for a human to answer. Two hard bounces in the last 100 sends (or over 2% from 100 sends) pause sending automatically; only a human resumes. If the mailbox cannot be read, the worker skips sending that cycle.
+- **Why:** the mailbox is the CEO's real inbox, so restraint is the privacy rule; bounces and complaints are what damage a main domain.
+- **Trade-offs:** the reply label from the model is a convenience (a failed call never blocks the alert). Bounce parsing is tested on standard delivery reports; a real one from GoDaddy or Gmail should be checked once with a deliberate bad address on our own domain.
+
 ## 2026-10-19: Phase 2 sending: one gate, staged rollout, never send twice
 - **Decision:** all sending lives in `zypher_agent/sender/` (a test fails if mail code appears anywhere else). Every message must pass the pure `decide()` policy at send time: approved for this exact version, not paused, not opted out, guardrails re-run, one first email per company, lead-local business hours, warmup-ramped daily cap (5 a day rising to 15, hard ceiling 20, owner may only lower it), spacing of 4 to 12 minutes. A message is claimed atomically before sending. Master switch `SENDING_ENABLED` is off by default; `SEND_ALLOWLIST` limits recipients during the rollout.
 - **Why:** sending is irreversible and we are on the company's main domain; the plan in docs/phase2-plan.md was approved by the owner. DNS check found mail is hosted at GoDaddy (SPF/DMARC already correct), not Google.

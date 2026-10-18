@@ -132,6 +132,38 @@ def _testmail(settings: Settings, to: str) -> int:
     return 0
 
 
+def _inbox_processor(settings: Settings, repo, alert):
+    from zypher_agent.llm import LLMError
+    from zypher_agent.llm_factory import build_llm
+    from zypher_agent.sender.inbox import IMAPMailbox, InboxProcessor
+
+    try:
+        llm = build_llm(settings, repo)
+    except LLMError:  # no model configured: replies still reach you, just without a label
+        class _NoLLM:
+            model = "none"
+
+            def call(self, **_kw):
+                raise LLMError("no model configured")
+
+        llm = _NoLLM()
+    return InboxProcessor(repo, IMAPMailbox(settings), llm, alert)
+
+
+def _inbox(settings: Settings) -> int:
+    from zypher_agent.db import PostgresRepo
+
+    _require(settings, "database_url", "mail_password")
+    repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
+    r = _inbox_processor(settings, repo, lambda text: print("ALERT:", text)).run_once()
+    if r.started:
+        print("First run: starting from now. Mail already in the mailbox is never read.")
+    else:
+        print(f"Handled {r.processed} mail(s) about your emails: {r.replies} reply(ies), {r.bounces} bounce(s), "
+              f"{r.auto_replies} auto-reply(ies). Skipped {r.ignored} unrelated mail(s): not stored, logged or shown.")
+    return 0
+
+
 def _send(settings: Settings, loop: bool) -> int:
     import time
 
@@ -157,11 +189,22 @@ def _send(settings: Settings, loop: bool) -> int:
             print(f"(could not send Telegram alert: {type(e).__name__})")
 
     worker = SendWorker(repo, SMTPTransport(settings), settings, footer, icp, alert=alert)
+    inbox = _inbox_processor(settings, repo, alert)
     if settings.send_allowlist:
         print(f"TEST MODE: only these recipients can receive email: {settings.send_allowlist}")
     while True:
-        s = worker.run_once()
         stamp = time.strftime("%H:%M:%S")
+        try:  # read bounces, replies and opt-outs BEFORE sending anything
+            r = inbox.run_once()
+            if r.processed:
+                print(f"[{stamp}] inbox: {r.replies} reply(ies), {r.bounces} bounce(s), {r.auto_replies} auto-reply(ies)")
+        except Exception as e:  # noqa: BLE001 - unreadable inbox means we cannot see opt-outs: do not send this cycle
+            print(f"[{stamp}] cannot read the mailbox ({type(e).__name__}): skipping sending this cycle")
+            if not loop:
+                return 1
+            time.sleep(60)
+            continue
+        s = worker.run_once()
         if s.paused:
             print(f"[{stamp}] sending is PAUSED: {s.paused}")
         else:
@@ -216,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("refresh", help="redraft every draft still awaiting approval with the current prompt, replace its card")
     sub.add_parser("status", help="show how many leads are at each stage and what needs your attention")
     sub.add_parser("send", help="one pass: send approved emails that the send policy allows right now")
+    sub.add_parser("inbox", help="read the mailbox once: bounces, replies and opt-outs about YOUR emails only")
     sub.add_parser("worker", help="keep sending approved emails as the policy allows (leave running; Ctrl+C stops)")
     tm = sub.add_parser("testmail", help="send ONE plain test email to an address you own, to check SPF/DKIM headers")
     tm.add_argument("--to", required=True, help="your own other mailbox, e.g. a Gmail address")
@@ -258,6 +302,8 @@ def main(argv: list[str] | None = None) -> int:
         return _status(settings)
     if args.cmd == "preflight":
         return _preflight(settings)
+    if args.cmd == "inbox":
+        return _inbox(settings)
     if args.cmd == "testmail":
         return _testmail(settings, args.to)
     if args.cmd in ("send", "worker"):

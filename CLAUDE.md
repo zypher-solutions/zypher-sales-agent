@@ -62,4 +62,4 @@ The owner is new to code and uses Claude as guide. For every non-trivial task:
 Tests pass, lint clean, no secrets or lead data in the diff, no Zypher-specific text in code or prompts, migrations mirrored in `schema.sql`, docs updated.
 
 ## Current phase
-Phase 1 complete. Phase 2 in progress (plan: docs/phase2-plan.md): send policy, transport, preflight and worker are built and tested with a fake mail server; real sending is OFF until the owner adds MAIL_PASSWORD, preflight passes and SENDING_ENABLED=true. Still to build: inbox handling (bounces, replies, opt-outs, stop-loss) and follow-up scheduling. Roadmap in README.md.
+Phase 1 complete. Phase 2 in progress (plan: docs/phase2-plan.md): send policy, transport, preflight and worker are built and tested with a fake mail server; real sending is OFF until the owner adds MAIL_PASSWORD, preflight passes and SENDING_ENABLED=true. Inbox handling (bounces, replies, opt-outs, stop-loss) is built. Still to build: follow-up scheduling. Roadmap in README.md.
