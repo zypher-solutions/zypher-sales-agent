@@ -92,6 +92,8 @@ WHAT TO PRODUCE
 - decision_maker: the name of an owner, founder, managing director, general manager or operations head, only if a page names them. Otherwise null.
 - hypotheses: 0 to {MAX_HYPOTHESES} guesses about {offer.evidence_focus} this company likely has.
   * Each needs `quote`: text copied EXACTLY, character for character, from a page (at least {MIN_QUOTE_CHARS} characters), and that page's `source_url`.
+  * Choose quotes that show HOW the business works: what customers must do to buy (forms, quotes, calls, WhatsApp), hiring for admin or data-entry roles, volumes ("we handle 75,000 documents"), paperwork, tracking, scheduling. Never quote an address, phone number, menu, footer, slogan or generic marketing claim.
+  * Prefer quotes that contain a concrete number, name or process step: they let the email show we read their site.
   * Phrase each hypothesis as a question or a likelihood, never as a fact about their business.
   * If nothing on the pages supports a workflow guess, return an empty list. Do not invent evidence.
 - disqualify: 'none' unless the company clearly matches a disqualifier below, with one sentence of evidence.

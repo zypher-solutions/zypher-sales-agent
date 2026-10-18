@@ -194,11 +194,17 @@ class ApprovalService:
             if msg.status not in ("awaiting_approval", "needs_changes"):
                 self.notifier.answer(cb_id, f"Already {msg.status}.")
                 return
+            # Reject means "this DRAFT is not good", not "never contact this company": the lead goes back to
+            # be redrafted on the next run. To drop a company for good, use /suppress with its domain.
             self.repo.update_message(msg.id, status="rejected")
-            self.repo.set_lead_status(lead.contact_id, "disqualified")
+            self.repo.set_lead_status(lead.contact_id, "researched")
             self.repo.log_event("rejected", contact_id=lead.contact_id, message_id=msg.id, actor=actor, payload={"version": msg.version})
-            self.notifier.edit(chat_id, tg_msg_id, f"❌ REJECTED v{msg.version}. No action taken.\n\nSubject: {msg.subject}")
-            self.notifier.answer(cb_id, "❌ Rejected")
+            self.notifier.edit(
+                chat_id, tg_msg_id,
+                f"❌ REJECTED v{msg.version}. A new draft will be written on the next run.\n"
+                f"To never contact them: /suppress {lead.domain}\n\nSubject: {msg.subject}",
+            )
+            self.notifier.answer(cb_id, "❌ Rejected: will redraft next run")
 
         else:  # suggest
             if msg.status != "awaiting_approval":

@@ -19,7 +19,7 @@ def test_dry_run_end_to_end():
     assert (summary.researched, summary.disqualified, summary.drafted, summary.delivered) == (2, 2, 2, 2)
     assert summary.failed == []
     assert status_by_company(run) == {
-        "Acme Freight Co": "approved", "Sunrise Family Clinic": "disqualified",  # rejected by the human
+        "Acme Freight Co": "approved", "Sunrise Family Clinic": "researched",  # draft rejected by the human: redrafted next run
         "DevCraft Studio": "disqualified", "Ghost Trading LLC": "disqualified",
     }
     acme = run.repo.latest_message(next(i for i, c in run.repo.contacts.items() if "acme" in c["email"]))

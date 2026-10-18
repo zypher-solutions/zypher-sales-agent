@@ -180,3 +180,20 @@ def test_result_claims_in_words_are_rejected(claim):
 def test_long_pitchy_subjects_are_rejected():
     assert "subject" in rules(make(subject="Quick idea to automate your shipment quote process"))
     assert "subject" not in rules(make(subject="quote requests"))
+
+
+def test_vague_draft_that_could_go_to_anyone_is_rejected():
+    # Seen live: "I saw your site says you offer a free quote request" was the same email for every company.
+    vague = GOOD_BODY.replace(
+        "I noticed your site asks customers to email or WhatsApp you for every shipment quote.",
+        "I saw something on your site and wonder about it.",
+    )
+    result = {v.rule: v.detail for v in check_draft(make(body=vague), [HYP], ICP, FOOTER).violations}
+    assert "specific_detail" in result and "whatsapp" in result["specific_detail"]  # tells the model how to fix it
+
+
+def test_using_two_details_from_the_quote_passes():
+    hyp = HYP.model_copy(update={"quote": "Annually, we manage over 75,000 customs documents."})
+    body = GOOD_BODY.replace("asks customers to email or WhatsApp you for every shipment quote",
+                             "says you manage over 75,000 customs documents a year")
+    assert "specific_detail" not in rules(make(body=body), hyps=[hyp])

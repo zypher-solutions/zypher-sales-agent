@@ -76,6 +76,37 @@ def _source(settings: Settings, args) -> int:
     return 0
 
 
+MEANING = {
+    "new": "found, not researched yet", "researched": "ready to draft", "drafted": "drafted, card not sent",
+    "awaiting_approval": "WAITING FOR YOU in Telegram", "approved": "approved by you (nothing sent yet)",
+    "nurture": "no public email: call or LinkedIn by hand", "disqualified": "not a fit",
+    "unsubscribed": "opted out", "needs_changes": "waiting for your feedback text",
+}
+
+
+def _status(settings: Settings) -> int:
+    from zypher_agent.db import PostgresRepo
+
+    _require(settings, "database_url")
+    repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
+    rows = repo.conn.execute(
+        "select status, count(*) as n from contacts where tenant_id = %s group by status order by n desc",
+        (settings.tenant_id,),
+    ).fetchall()
+    print("Leads by stage:")
+    for r in rows:
+        print(f"  {r['n']:>4}  {r['status']:<18} {MEANING.get(r['status'], '')}")
+    if not rows:
+        print("  none yet. Start with: zypher find \"freight forwarding company\" \"Dubai, United Arab Emirates\" 20")
+    sup = repo.conn.execute("select count(*) as n from suppression_list where tenant_id = %s", (settings.tenant_id,)).fetchone()
+    cost = repo.conn.execute(
+        "select count(*) as n, coalesce(sum((payload->>'cost_usd')::float), 0) as usd from events "
+        "where tenant_id = %s and type = 'llm_call'", (settings.tenant_id,),
+    ).fetchone()
+    print(f"\nDo-not-contact list: {sup['n']} | model calls so far: {cost['n']} (paid cost ${cost['usd']:.2f})")
+    return 0
+
+
 def _print_summary(s) -> None:
     print(
         f"\nResearched: {s.researched} | disqualified: {s.disqualified} | drafted: {s.drafted} | "
@@ -98,6 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--limit", type=int, default=5, help="max leads per stage (default 5)")
     sub.add_parser("bot", help="listen for Telegram button taps and feedback")
     sub.add_parser("refresh", help="redraft every draft still awaiting approval with the current prompt, replace its card")
+    sub.add_parser("status", help="show how many leads are at each stage and what needs your attention")
     src = sub.add_parser("source", help="find companies on Google Maps (Apify) and add them as new leads")
     src.add_argument("--query", action="append", required=True, help='e.g. "logistics company" (repeat for more)')
     src.add_argument("--location", required=True, help='e.g. "Dubai, United Arab Emirates"')
@@ -123,6 +155,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     if args.cmd == "source":
         return _source(settings, args)
+    if args.cmd == "status":
+        return _status(settings)
     pipeline, service, tg, repo = _live(settings)
     if args.cmd == "refresh":
         print(f"Refreshed {service.refresh_pending()} draft(s). New cards are in Telegram.")

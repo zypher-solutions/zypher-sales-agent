@@ -42,11 +42,32 @@ WRONG_INBOX = re.compile(
 )
 
 
+# Who reads an inbox decides whether a sales email gets answered. Best to worst; the first match wins.
+INBOX_PREFERENCE = [
+    re.compile(r"^(owner|founder|ceo|md|director|gm|manager|operations|ops)\b", re.I),   # a decision maker
+    re.compile(r"^(sales|business|bd|enquir\w*|inquir\w*|quote\w*)\b", re.I),             # people who answer buyers
+    re.compile(r"^(info|contact|hello|hi|office|admin|mail)\b", re.I),                     # the general inbox
+]
+SUPPORT_INBOX = re.compile(r"(support|help|care|service|tracking|complain\w*|feedback|customer|claims?)", re.I)
+
+
+def _inbox_rank(email: str) -> int:
+    local = email.split("@")[0]
+    for i, pattern in enumerate(INBOX_PREFERENCE):
+        if pattern.match(local):
+            return i
+    return 4 if SUPPORT_INBOX.search(local) else 3  # support desks answer shipment queries, not proposals
+
+
 def rank_contact_emails(found: list[str], domain: str) -> list[str]:
-    """Usable public addresses, best first: on the company's own domain, then any other (many SMEs use gmail)."""
+    """Usable public addresses, best first: on the company's own domain, then by who reads the inbox.
+
+    Addresses on other domains (many SMEs use gmail) come after every own-domain address.
+    """
     usable = [e for e in dict.fromkeys(found) if not WRONG_INBOX.match(e)]
     own = [e for e in usable if e.endswith(("@" + domain, "." + domain))]
-    return own + [e for e in usable if e not in own]
+    other = [e for e in usable if e not in own]
+    return sorted(own, key=_inbox_rank) + sorted(other, key=_inbox_rank)
 
 
 def has_mail_server(email: str) -> bool:

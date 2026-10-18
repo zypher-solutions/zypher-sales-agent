@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-19: Evidence-specific drafts, better inbox choice, Reject only discards the draft
+- **Decision:** (1) a draft must reuse at least two concrete words or numbers from the quotes it cites, else it fails `specific_detail` and Approve is disabled; (2) inbox choice ranks decision makers, then sales/enquiries, then info/contact, and support desks last; (3) Reject sets the lead back to `researched` so a new draft is written, instead of disqualifying the company; (4) research prefers quotes about how the business works and with numbers, never addresses or slogans.
+- **Why:** seen live: three of five drafts were the same email for every freight company (generic "free quote" pitch), and two went to support desks. Reject permanently killing a lead after one weak draft threw away paid-for leads.
+- **Trade-off:** leads whose websites carry no concrete evidence now produce a failed card instead of a sendable weak email. That is intended: fewer, better emails. The word-overlap test is a proxy for "specific"; the owner's approval remains the final judge.
+
 ## 2026-10-19: Leads come from Google Maps via Apify; emails only from the company's own site
 - **Decision:** `zypher_agent source` runs Apify's `compass/crawler-google-places` (places with a website, open only) and imports companies with no email. During research the pipeline takes the best public business address from their own pages (own domain first; careers/no-reply/HR inboxes skipped), checks the domain accepts mail, and checks the do-not-contact list. No usable address: status `nurture`, phone kept for a human.
 - **Why:** automation instead of hand-built spreadsheets; public business addresses are the defensible source for B2B outreach; we do not buy Apify's contact enrichment (personal data, extra cost).

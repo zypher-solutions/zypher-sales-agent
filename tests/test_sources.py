@@ -123,7 +123,15 @@ def test_import_skips_suppressed_and_existing_csv_domains():
 
 def test_rank_prefers_own_domain_and_drops_wrong_inboxes():
     found = ["noreply@acme.ae", "careers@acme.ae", "owner@gmail.com", "info@acme.ae", "sales@mail.acme.ae"]
-    assert rank_contact_emails(found, "acme.ae") == ["info@acme.ae", "sales@mail.acme.ae", "owner@gmail.com"]
+    assert rank_contact_emails(found, "acme.ae") == ["sales@mail.acme.ae", "info@acme.ae", "owner@gmail.com"]
+
+
+def test_rank_prefers_people_who_answer_buyers_over_support_desks():
+    # Seen live: support.clfl@ and logistic.support@ were chosen over sales@ and info@.
+    found = ["support.clfl@acme.ae", "tracking@acme.ae", "info@acme.ae", "sales@acme.ae", "ceo@acme.ae", "ahmed@acme.ae"]
+    assert rank_contact_emails(found, "acme.ae") == [
+        "ceo@acme.ae", "sales@acme.ae", "info@acme.ae", "ahmed@acme.ae", "support.clfl@acme.ae", "tracking@acme.ae"]
+    assert rank_contact_emails(["support@acme.ae", "x@gmail.com"], "acme.ae")[0] == "support@acme.ae"  # own domain still first
 
 
 def sourced_lead_run(site_emails, email_ok=lambda e: True):

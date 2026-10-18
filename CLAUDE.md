@@ -40,6 +40,7 @@ An AI outbound sales agent. Built first for **Zypher Software Solutions LLP** (K
 - Any reply that is not a clear negative goes to a human.
 
 ## Commands (Windows, PowerShell)
+- Day-to-day launcher for the owner: `.\zypher.ps1 status|find|draft|bot|refresh|test|demo`; guide in docs/how-to-use.md (keep both in sync with the CLI)
 - Tests: `.\.venv\Scripts\python.exe -m pytest -q` (the global Python lacks the package; always use the venv)
 - Lint: `.\.venv\Scripts\python.exe -m ruff check .`
 - Dry run (no keys, no cost): `.\.venv\Scripts\python.exe -m zypher_agent run --dry-run`

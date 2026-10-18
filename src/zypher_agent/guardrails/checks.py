@@ -35,6 +35,18 @@ URGENCY = re.compile(
     r"before it'?s too late|don'?t miss)\b",
     re.IGNORECASE,
 )
+# Words too common on any business website to show we read THEIRS. A draft must share at least
+# MIN_SHARED_DETAIL other words (or numbers) with the quotes it cites, or it is the same email for everyone.
+GENERIC_WORDS = set(
+    "about their there which would could should these those where while other every using please contact quote "
+    "quotes request requests form forms free customers customer client clients services service solutions solution "
+    "company business team teams process manually manual email phone website online check great sorry hours today "
+    "follow tools tool system systems existing sketch page pages enquiries enquiry details information offer "
+    "modes provide provides quality support".split()
+)
+MIN_SHARED_DETAIL = 2
+WORD = re.compile(r"[a-z]{5,}|\d{2,}")
+
 # Result claims written in words instead of digits ("cut it in half", "double your replies") are still numbers.
 RESULT_CLAIM = re.compile(
     r"\bin half\b|\bhalve[sd]?\b|\b(double|triple|quadruple)[sd]?\b|\b\d+x\b|\btenfold\b",
@@ -135,6 +147,16 @@ def check_draft(
             fail("proof_in_first_touch", f"claim cites proof point {c.evidence_id}")
         elif c.evidence_id not in known | proof_ids:
             fail("unknown_evidence", f"claim cites {c.evidence_id!r}, which does not exist")
+
+    # specificity: the email must reuse concrete details from the evidence it cites, not just point at it
+    cited = {c.evidence_id for c in draft.claims}
+    quote_words = {
+        w for h in hypotheses if h.id in cited for w in WORD.findall(h.quote.lower()) if w not in GENERIC_WORDS
+    }
+    shared = quote_words & {w for w in WORD.findall(body.lower()) if w not in GENERIC_WORDS}
+    if quote_words and len(shared) < min(MIN_SHARED_DETAIL, len(quote_words)):  # never demand more than the quote has
+        hints = ", ".join(sorted(quote_words, key=len, reverse=True)[:6])
+        fail("specific_detail", f"mention a concrete detail from your cited evidence, such as: {hints}")
 
     # tone and structure
     stripped = body.rstrip()

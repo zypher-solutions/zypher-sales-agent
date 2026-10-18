@@ -103,7 +103,7 @@ def test_reject():
     repo, notifier, service, msg, _ = world()
     tap(service, msg, "reject")
     assert repo.get_message(msg.id).status == "rejected"
-    assert repo.contacts[msg.contact_id]["status"] == "disqualified"
+    assert repo.contacts[msg.contact_id]["status"] == "researched"
     tap(service, msg, "approve")  # cannot approve a rejected draft
     assert repo.get_message(msg.id).status == "rejected"
 
