@@ -28,7 +28,7 @@ def _live(settings: Settings):
 
     _require(settings, "database_url", "anthropic_api_key", "telegram_bot_token", "telegram_allowed_user_ids")
     icp, footer = load_icp(settings.icp_path), build_footer(settings, load_icp(settings.icp_path))
-    repo = PostgresRepo(settings.database_url.get_secret_value())
+    repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
     llm = ClaudeLLM(settings, repo)
     tg = TelegramClient(settings.telegram_bot_token.get_secret_value())
     service = ApprovalService(repo, llm, icp, footer, tg, settings.telegram_allowed_user_ids)

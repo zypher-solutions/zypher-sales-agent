@@ -1,4 +1,5 @@
--- Zypher Sales Agent: Supabase/Postgres schema (v0)
+-- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001 and 002).
+-- Fresh database: run this file only. Existing database: run the numbered files in migrations/ instead.
 create extension if not exists "pgcrypto";
 
 create type lead_status as enum (
@@ -9,17 +10,29 @@ create type lead_status as enum (
 create type channel_type as enum ('email','linkedin','whatsapp');
 create type message_status as enum (
   'draft','awaiting_approval','approved','rejected','queued','sent',
-  'delivered','failed','bounced'
+  'delivered','failed','bounced','needs_changes'
 );
 create type reply_class as enum (
   'interested','not_now','not_interested','unsubscribe','out_of_office',
   'wrong_person','question','other'
 );
 
+-- A tenant is one business using the engine. Zypher is the default tenant.
+-- No auth or row-level security yet: isolation is enforced in the repository layer.
+create table tenants (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  name text not null,
+  created_at timestamptz default now()
+);
+insert into tenants (id, slug, name)
+values ('00000000-0000-0000-0000-000000000001', 'zypher', 'Zypher Software Solutions LLP');
+
 create table companies (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   name text not null,
-  domain text unique not null,          -- normalized, e.g. example.com
+  domain text not null,                  -- normalized, e.g. example.com
   website text,
   country text,
   industry text,
@@ -28,9 +41,11 @@ create table companies (
   source text,                           -- csv, apollo, maps, manual
   created_at timestamptz default now()
 );
+create unique index companies_tenant_domain_key on companies (tenant_id, domain);
 
 create table contacts (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   company_id uuid references companies(id) on delete cascade,
   full_name text,
   role text,
@@ -44,10 +59,11 @@ create table contacts (
   created_at timestamptz default now(),
   unique (company_id, email)
 );
-create index on contacts (status);
+create index contacts_tenant_status_idx on contacts (tenant_id, status);
 
 create table research_reports (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   company_id uuid references companies(id) on delete cascade,
   pages_fetched jsonb,                   -- [{url, fetched_at, text_hash}]
   services text[],
@@ -55,11 +71,15 @@ create table research_reports (
   workflow_hypotheses jsonb,             -- [{hypothesis, evidence, confidence}]
   summary text,
   model text,
+  disqualify_reason text,
+  decision_maker text,
+  public_emails text[],
   created_at timestamptz default now()
 );
 
 create table campaigns (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   name text not null,
   icp_version text,
   offer text,
@@ -70,6 +90,7 @@ create table campaigns (
 
 create table sequences (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   campaign_id uuid references campaigns(id) on delete cascade,
   step int not null,
   channel channel_type not null,
@@ -79,6 +100,7 @@ create table sequences (
 
 create table messages (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   contact_id uuid references contacts(id) on delete cascade,
   campaign_id uuid references campaigns(id),
   step int not null default 1,
@@ -92,14 +114,19 @@ create table messages (
   feedback text,                         -- human edit instructions
   reply_class reply_class,
   provider_message_id text,
+  telegram_chat_id bigint,               -- where the approval message lives, so button presses map back
+  telegram_message_id bigint,
   scheduled_at timestamptz,
   sent_at timestamptz,
   created_at timestamptz default now()
 );
-create index on messages (status, scheduled_at);
+create index messages_tenant_status_idx on messages (tenant_id, status, scheduled_at);
+create index messages_telegram_idx on messages (telegram_chat_id, status);
 
+-- Suppression is per tenant: opting out of one business is not opting out of another.
 create table suppression_list (
   id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   email text,
   domain text,
   phone text,
@@ -107,11 +134,12 @@ create table suppression_list (
   created_at timestamptz default now(),
   check (email is not null or domain is not null or phone is not null)
 );
-create unique index on suppression_list (lower(email)) where email is not null;
-create unique index on suppression_list (lower(domain)) where domain is not null;
+create unique index suppression_tenant_email_key  on suppression_list (tenant_id, lower(email))  where email is not null;
+create unique index suppression_tenant_domain_key on suppression_list (tenant_id, lower(domain)) where domain is not null;
 
 create table events (
   id bigserial primary key,
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
   contact_id uuid,
   message_id uuid,
   type text not null,                    -- approved, edited, sent, bounced, replied, llm_call...
@@ -119,4 +147,4 @@ create table events (
   payload jsonb,
   created_at timestamptz default now()
 );
-create index on events (contact_id, created_at);
+create index events_tenant_contact_idx on events (tenant_id, contact_id, created_at);

@@ -30,11 +30,12 @@ def main() -> int:
         print("Dry run: nothing written.")
         return 0
 
-    url = Settings().database_url
+    settings = Settings()
+    url = settings.database_url
     if url is None:
         print("DATABASE_URL is not set.", file=sys.stderr)
         return 1
-    imported, suppressed = import_rows(PostgresRepo(url.get_secret_value()), parsed.rows)
+    imported, suppressed = import_rows(PostgresRepo(url.get_secret_value(), settings.tenant_id), parsed.rows)
     print(f"Imported {imported} contacts, {suppressed} suppressed.")
     return 0
 

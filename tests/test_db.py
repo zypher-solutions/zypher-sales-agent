@@ -25,6 +25,31 @@ def repo(request):
     r.conn.execute("delete from suppression_list where reason = 'test'")
 
 
+TENANT_B = "00000000-0000-0000-0000-0000000000b2"
+
+
+@pytest.fixture(params=["memory", "postgres"])
+def two_tenants(request):
+    """(repo for the default tenant, repo for a second tenant) over the same database."""
+    if request.param == "memory":
+        a = InMemoryRepo()
+        yield a, a.for_tenant(TENANT_B)
+        return
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("TEST_DATABASE_URL not set")
+    a = PostgresRepo(url)
+    a.conn.execute(
+        "insert into tenants (id, slug, name) values (%s, 'test-b', 'Test B') on conflict do nothing", (TENANT_B,)
+    )
+    b = PostgresRepo(url, TENANT_B)
+    yield a, b
+    a.conn.execute("delete from companies where source = 'test'")
+    a.conn.execute("delete from suppression_list where reason = 'test'")
+    a.conn.execute("delete from events where tenant_id = %s", (TENANT_B,))
+    a.conn.execute("delete from tenants where id = %s", (TENANT_B,))
+
+
 def new_lead(repo, email="a@acme-test.com", domain=None):
     domain = domain or f"{uuid.uuid4().hex[:8]}.test.com"
     return repo.upsert_lead(
@@ -105,3 +130,65 @@ def test_update_message_rejects_unknown_fields(repo):
 def test_log_event(repo):
     cid, _ = new_lead(repo)
     repo.log_event("llm_call", contact_id=cid, payload={"cost_usd": 0.01})
+
+
+# --- tenant isolation: one tenant must never see or touch another's data ---
+
+def test_same_domain_in_two_tenants_is_two_leads(two_tenants):
+    a, b = two_tenants
+    domain = f"{uuid.uuid4().hex[:8]}.test.com"
+    ca = a.upsert_lead(CompanyIn(name="Acme", domain=domain, source="test"), ContactIn(email="x@acme-test.com"))
+    cb = b.upsert_lead(CompanyIn(name="Acme", domain=domain, source="test"), ContactIn(email="x@acme-test.com"))
+    assert ca != cb
+    assert a.get_lead(ca).company_id != b.get_lead(cb).company_id
+
+
+def test_leads_are_invisible_across_tenants(two_tenants):
+    a, b = two_tenants
+    cid, _ = new_lead(a)
+    assert cid in [l.contact_id for l in a.leads_with_status("new", 1000)]
+    assert cid not in [l.contact_id for l in b.leads_with_status("new", 1000)]
+    with pytest.raises(KeyError):
+        b.get_lead(cid)
+    b.set_lead_status(cid, "approved")  # no-op for another tenant's lead
+    assert cid in [l.contact_id for l in a.leads_with_status("new", 1000)]
+    b.set_company_industry(a.get_lead(cid).company_id, "Hacked")
+    assert a.get_lead(cid).industry is None
+
+
+def test_suppression_is_per_tenant(two_tenants):
+    a, b = two_tenants
+    mail, dom = f"{uuid.uuid4().hex[:6]}@iso-test.com", f"{uuid.uuid4().hex[:6]}-iso.com"
+    a.add_suppression("test", email=mail)
+    a.add_suppression("test", domain=dom)
+    assert a.is_suppressed(mail, None) and a.is_suppressed(None, dom)
+    assert not b.is_suppressed(mail, None) and not b.is_suppressed(None, dom)
+    b.add_suppression("test", email=mail)  # the same address may be suppressed independently
+    assert b.is_suppressed(mail, None)
+
+
+def test_messages_are_invisible_across_tenants(two_tenants):
+    a, b = two_tenants
+    cid, _ = new_lead(a)
+    m = a.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    a.update_message(m.id, status="needs_changes", telegram_chat_id=42)
+    with pytest.raises(KeyError):
+        b.get_message(m.id)
+    with pytest.raises(KeyError):
+        b.update_message(m.id, status="approved")
+    assert b.latest_message(cid) is None
+    assert b.message_needing_changes(42) is None
+    assert a.get_message(m.id).status == "needs_changes"
+
+
+def test_cannot_attach_data_to_another_tenants_records(two_tenants):
+    a, b = two_tenants
+    cid, _ = new_lead(a)
+    company_id = a.get_lead(cid).company_id
+    with pytest.raises(KeyError):
+        b.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    with pytest.raises(KeyError):
+        b.save_research(company_id, ResearchReport(services=["s"], model="m"))
+    a.save_research(company_id, ResearchReport(services=["s"], model="m"))
+    assert b.latest_research(company_id) is None
+    assert a.latest_research(company_id) is not None

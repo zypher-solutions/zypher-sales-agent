@@ -8,6 +8,9 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# The single tenant until the roadmap says otherwise. Matches the row seeded by migration 002.
+DEFAULT_TENANT_ID = "00000000-0000-0000-0000-000000000001"
+
 
 class Settings(BaseSettings):
     """Everything that comes from the environment. Secrets are SecretStr so they never print."""
@@ -19,6 +22,7 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 16000
 
     database_url: SecretStr | None = None
+    tenant_id: str = DEFAULT_TENANT_ID
 
     telegram_bot_token: SecretStr | None = None
     # NoDecode: take the raw "1,2,3" string and let the validator split it.
