@@ -92,8 +92,9 @@ class SendWorker:
         lead = self.repo.get_lead(msg.contact_id)
         if not lead.email:
             return self._block(msg, lead, "no email address", summary)
-        if not allowlisted(lead.email, self.settings.send_allowlist):
-            return self._block(msg, lead, "not on the test allowlist (SEND_ALLOWLIST)", summary, quiet=True)
+        held = self.held_reason(lead.email)
+        if held:
+            return self._block(msg, lead, held, summary, tell_owner=True)
 
         stats = self.repo.send_stats(self._day_start(now))
         decision = decide(SendContext(
@@ -119,8 +120,9 @@ class SendWorker:
         now = now or datetime.now(timezone.utc)
         if not self.settings.sending_enabled:
             return "Sending is switched OFF (SENDING_ENABLED in .env), so nothing leaves until you turn it on."
-        if self.settings.send_allowlist and not allowlisted(lead.email or "", self.settings.send_allowlist):
-            return "TEST MODE: this address is not on SEND_ALLOWLIST, so it will not be sent."
+        held = self.held_reason(lead.email)
+        if held:
+            return held + "."
         paused, reason = self.repo.sending_state()
         if paused:
             return f"Sending is PAUSED ({reason}). It goes out after you send /resume."
@@ -232,7 +234,16 @@ class SendWorker:
 
     # ---------- outcomes ----------
 
-    def _block(self, msg: Message, lead: Lead, reason: str, summary: SendSummary, quiet: bool = False) -> None:
+    def held_reason(self, email: str | None) -> str | None:
+        """Why TEST MODE would keep an email from leaving, in words the owner can act on. None = not held."""
+        if not self.settings.send_allowlist or allowlisted(email or "", self.settings.send_allowlist):
+            return None
+        return (f"TEST MODE: only {self.settings.send_allowlist} can receive email right now, so this will NOT be sent. "
+                "To send to real companies, clear SEND_ALLOWLIST in .env and restart")
+
+    def _block(
+        self, msg: Message, lead: Lead, reason: str, summary: SendSummary, quiet: bool = False, tell_owner: bool = False,
+    ) -> None:
         if "do-not-contact" in reason:  # opted out after approval: this email must never go
             self.repo.update_message(msg.id, status="rejected", last_error=reason)
             self.repo.set_lead_status(lead.contact_id, "unsubscribed")
@@ -240,6 +251,8 @@ class SendWorker:
             self.repo.update_message(msg.id, last_error=reason)
             if not quiet:
                 self.repo.log_event("send_blocked", contact_id=lead.contact_id, message_id=msg.id, actor="sender", payload={"reason": reason})
+            if tell_owner:  # an approved email that is not leaving must never fail silently: say so once
+                self.alert(f"⏸ Approved but NOT sent: {lead.email} ({lead.company_name}). {reason}.")
         if not quiet:
             summary.blocked.append(f"{lead.company_name}: {reason}")
 

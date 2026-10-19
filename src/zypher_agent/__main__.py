@@ -147,7 +147,9 @@ def _attach_explainer(settings: Settings, service, repo, icp, footer) -> None:
     from zypher_agent.sender.transport import FakeTransport
     from zypher_agent.sender.worker import SendWorker
 
-    service.send_explainer = SendWorker(repo, FakeTransport(), settings, footer, icp).explain  # only explains: sends nothing
+    helper = SendWorker(repo, FakeTransport(), settings, footer, icp)  # only explains and checks: it sends nothing
+    service.send_explainer = helper.explain
+    service.approval_gate = lambda lead: helper.held_reason(lead.email)
 
 
 def _run_bot_in_background(settings: Settings) -> None:

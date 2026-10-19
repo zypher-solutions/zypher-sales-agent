@@ -163,3 +163,38 @@ def test_two_threads_releasing_the_queue_never_show_the_same_card_twice():
     [t.join() for t in threads]
     assert len(notifier.sent) == 30  # 30 queued drafts, 30 cards: none shown twice
     assert len(repo.messages_with_status(["awaiting_approval"])) == 30
+
+
+# ---------- test mode must never fail silently ----------
+
+def test_approving_an_address_that_test_mode_would_hold_is_refused_with_the_reason():
+    repo, notifier, service, msg, _ = world()
+    w = W(send_allowlist="me@gmail.com")
+    service.approval_gate = lambda lead: w.worker.held_reason(lead.email)
+    tap(service, msg, "approve")
+    assert repo.get_message(msg.id).status == "awaiting_approval"           # nothing approved
+    assert "TEST MODE" in popup(notifier) and "me@gmail.com" in popup(notifier) and "SEND_ALLOWLIST" in popup(notifier)
+    assert [b.text for b in notifier.sent[-1]["buttons"]][0] == "✅ Approve"  # the card is unchanged
+    tap(service, msg, "confirm")  # a forged second tap is refused too
+    assert repo.get_message(msg.id).status == "awaiting_approval"
+
+
+def test_the_gate_lets_allowed_addresses_through():
+    repo, notifier, service, msg, _ = world()
+    w = W(send_allowlist="ann@acme.com")
+    service.approval_gate = lambda lead: w.worker.held_reason(lead.email)
+    approve(service, msg)
+    assert repo.get_message(msg.id).status == "approved"
+
+
+def test_an_already_approved_email_held_by_test_mode_is_reported_once_not_silently():
+    from test_send_worker import World
+    w = World(send_allowlist="someone@else.com")
+    alerts = []
+    w.worker.alert = alerts.append
+    w.message(w.lead(name="Acme", email="o@acme.ae"))
+    first = w.run()
+    again = w.run(TUE_10AM + timedelta(minutes=5))
+    assert first.sent == 0 and first.blocked and "TEST MODE" in first.blocked[0]       # printed in the terminal
+    assert len(alerts) == 1 and alerts[0].startswith("⏸ Approved but NOT sent: o@acme.ae")  # told once in Telegram
+    assert again.blocked and len(alerts) == 1                                           # still visible, not repeated

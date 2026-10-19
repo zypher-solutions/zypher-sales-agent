@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-20: Test mode never fails silently
+- **Decision:** when `SEND_ALLOWLIST` is set, (1) tapping Approve on an address outside it is refused at once with the reason and how to fix it, instead of taking an approval that can never send; (2) an already-approved email held by test mode is shown in the terminal each pass and announced once in Telegram ("Approved but NOT sent"). Cards already said so after approval; that was too easy to miss.
+- **Why:** the owner approved a real company, saw "sent 0" in the terminal and could not tell why. A held email must be as visible as a sent one.
+- **Trade-off:** none for safety: nothing new can leave. The allowlist stays the owner's decision; the system never clears it by itself.
+
 ## 2026-10-20: Every sent email is also filed in the mailbox's Sent folder
 - **Decision:** after a successful send the worker adds a copy of the exact message to the Sent folder over IMAP (`SENT_FOLDER`, default "Sent"; `SAVE_SENT_COPY=false` turns it off), marked as read and dated with the real send time. A failure is logged as `sent_copy_failed` and can never change, undo or repeat the send.
 - **Why:** sending straight through the mail server delivers the email but the server files no copy; only mail apps do that. The owner saw approved, delivered emails missing from the Titan Sent list and could not tell what had gone out.

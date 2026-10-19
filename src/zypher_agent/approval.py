@@ -151,6 +151,9 @@ class ApprovalService:
         self.max_open_cards = max_open_cards
         # Says when an approved email will go out. The CLI sets it from the send worker; None = generic wording.
         self.send_explainer: Callable[[Message, Lead], str] | None = None
+        # Returns a reason when sending to this lead is currently held (test mode), so we never take an approval
+        # that cannot lead to a send. None = fine. Set by the CLI from the send worker.
+        self.approval_gate: Callable[[Lead], str | None] | None = None
         self.sending_status: Callable[[], str] | None = None  # set by the CLI: today's count and cap for /status
 
     # ---------- outgoing ----------
@@ -294,6 +297,10 @@ class ApprovalService:
                 return
             if self.repo.is_suppressed(lead.email, lead.domain):  # they may have opted out since drafting
                 self.notifier.answer(cb_id, "Blocked: this contact is on the do-not-contact list.")
+                return
+            held = self.approval_gate(lead) if self.approval_gate is not None else None
+            if held:  # explain now, instead of letting the owner approve something that can never be sent
+                self.notifier.answer(cb_id, held[:195])
                 return
             if action == "approve":  # sending cannot be undone, so ask once more, naming exactly who gets it
                 key = f"{msg.id}|{msg.version}"
