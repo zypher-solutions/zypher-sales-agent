@@ -1,7 +1,7 @@
 # How to use the sales agent (current version)
 
 You never need Claude to run this day to day. Open a terminal in the project folder and use `.\zypher.ps1`.
-(The full final guide will replace this once sending is built in Phase 2.)
+Phase 2 (sending, follow-ups, bounces, stats) is built. Not built yet: writing replies for you, CRM or Slack handoff, LinkedIn and WhatsApp, running on a server so it works with your PC off, and counting meetings booked.
 
 ## One-time setup (already done on this PC)
 1. `.env` holds your keys (Groq, Apify, Telegram, database) and your sender details. Never share or commit it.
@@ -16,9 +16,9 @@ Open one terminal in the project folder and run `.\zypher.ps1 start`. Leave the 
 | Step | Command | What it does | Cost |
 |---|---|---|---|
 | 1 | `.\zypher.ps1 status` | Shows how many leads are at each stage and what needs you | free |
-| 2 | `.\zypher.ps1 find "freight forwarding company" "Dubai, United Arab Emirates" 20` | Finds companies on Google Maps that have their own website, adds them as new leads. Run it again with a different search or city whenever you need more leads. Re-running never duplicates anyone | about $0.004 per company (Apify free credit is about $5/month, so roughly 1,000 companies) |
+| 2 | `.\zypher.ps1 find "trading company" "Dubai, United Arab Emirates" 20` (see "What to search for" below) | Finds companies on Google Maps that have their own website, adds them as new leads. Run it again with a different search or city whenever you need more leads. Re-running never duplicates anyone | about $0.004 per company (Apify free credit is about $5/month, so roughly 1,000 companies) |
 | 3 | `.\zypher.ps1 draft 5` | Reads each company's website, finds a public business email, writes the email, checks it against the rules, sends a card to Telegram. About a minute per lead on the free model | free |
-| 4 | `.\zypher.ps1 bot` (leave the window open) | Listens for your taps on the Telegram cards | free |
+| 4 | `.\zypher.ps1 start` (leave the window open) | Runs everything at once: your Telegram buttons, sending, inbox reading and follow-ups | free |
 | 5 | Telegram | Review each card, then tap Approve, Suggest changes or Reject | |
 
 ## Who we are looking for
@@ -54,10 +54,10 @@ Set in `.env`: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_EMAIL`, `SENDER_PHONE`, `S
 1. Put `MAIL_PASSWORD=` (your mailbox password) in `.env` yourself. Never paste it anywhere else.
 2. `.\zypher.ps1 preflight` checks DNS, SPF, DMARC and logs in to your mailbox. It sends nothing. Fix every FAIL first.
 3. For the first test, set `SEND_ALLOWLIST=` to your own other email addresses (for example your Gmail) and `SENDING_ENABLED=true`. Only those can receive mail.
-4. Approve a draft in Telegram, then `.\zypher.ps1 send` (one pass) or `.\zypher.ps1 worker` (keeps going, leave open).
+4. Run `.\zypher.ps1 start` and leave it open. Approve a draft in Telegram (tap Approve, then Yes), and the card tells you when it goes out. (`.\zypher.ps1 send` does one sending pass by hand. You normally never need it.)
 5. Open the email in Gmail, choose "Show original", and confirm `SPF: PASS` and `DKIM: PASS`.
 6. Only then clear `SEND_ALLOWLIST` to go live. The rules (business hours in the lead's country, 5 emails a day at first, spacing, never twice) apply automatically.
-Telegram controls: `/pause`, `/resume`, `/status`.
+Telegram controls: `/pause`, `/resume`, `/status`, `/queue`, `/stats`, `/suppress`. Type `/` in the chat to see the menu.
 
 ## The card limit and `/queue`
 Telegram never shows more than 10 cards at once (`MAX_OPEN_CARDS` in `.env`). If more are ready, they wait quietly, and the next card appears as soon as you approve, reject or change one. Follow-ups come before new first emails. Type `/queue` in the chat to see how many are waiting for you and how many are queued behind them. A follow-up card is short: which email it is, what the previous email was, the new text, and the evidence it is based on. The signature is the same as email 1 and is not repeated.
@@ -78,6 +78,7 @@ Every minute the worker reads your mailbox (read-only, and only mail about the e
 Mail that has nothing to do with our emails is never stored, logged or shown. `.\zypher.ps1 inbox` reads the mailbox once by hand.
 
 ## Other commands
+- `.\zypher.ps1 stats` shows replies, bounces and opt-outs. `.\zypher.ps1 preflight` checks your mail setup before the first send. `.\zypher.ps1 testmail` is a Python command (`python -m zypher_agent testmail --to you@gmail.com`) that sends one test email to an address you own.
 - `.\zypher.ps1 refresh` rewrites every draft still waiting with the latest rules (use after changing wording rules).
 - `.\zypher.ps1 demo` runs everything on fake data, free, with no keys. `.\zypher.ps1 test` runs the self-checks.
 
