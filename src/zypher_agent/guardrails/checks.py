@@ -29,6 +29,10 @@ CALL_ASK = re.compile(
     r"|\b\d+[- ]?(min|minute)s?\b|\bcalendar\b|\bzoom\b|\bdemo\b",
     re.IGNORECASE,
 )
+EMAIL_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
+# A run of digits with spaces, dots, dashes or brackets. Counted as a phone number only with 9+ digits,
+# so years (2024-2025), staff counts and order numbers are not caught.
+PHONE_LIKE = re.compile(r"\+?\(?\d[\d\s().-]{6,}\d")
 LINK = re.compile(r"https?://|www\.|\b[a-z0-9-]+\.(com|in|ae|qa|co|io|net|org|ai|app)\b", re.IGNORECASE)
 URGENCY = re.compile(
     r"\b(act now|limited time|last chance|hurry|urgent|urgently|spots? left|only today|expires?|"
@@ -198,6 +202,8 @@ def check_draft(
         fail("call_request", "do not ask for a call, meeting or time in a first touch; offer the sketch")
     if LINK.search(text):
         fail("links", "no links or web addresses in a first touch")
+    if EMAIL_ADDRESS.search(text) or any(sum(ch.isdigit() for ch in m.group()) >= 9 for m in PHONE_LIKE.finditer(text)):
+        fail("contact_details", "no email addresses or phone numbers in the email, not even their own")
     if URGENCY.search(text):
         fail("urgency", "no urgency or scarcity language")
     if kr["evidence"] and not HEDGES.search(body):

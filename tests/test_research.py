@@ -331,3 +331,23 @@ def test_an_empty_list_turns_the_veto_off_for_tenants_who_sell_to_consumers():
 def test_the_research_prompt_warns_the_model_off_consumer_quotes():
     from zypher_agent.research.agent import system_prompt
     assert "homeowner" in system_prompt(ICP)
+
+
+# ---------- words inside an email address or a link are not proof ----------
+
+def test_a_role_word_inside_an_email_address_or_link_is_not_proof():
+    for quote in ("sales@medianatrading.ae +971 52 153 4406",  # real case: "sales" was taken as an office team
+                  "Write to accounts@acme-trading.ae for statements",
+                  "Visit https://acme.ae/sales-department today"):
+        kept, dropped = _proof("office_team", quote)
+        assert kept == [] and "names no role" in dropped[0]["reason"], quote
+
+
+def test_a_role_named_in_words_next_to_an_address_still_counts():
+    kept, _ = _proof("office_team", "Our sales team answers at sales@acme-trading.ae within a day")
+    assert len(kept) == 1
+
+
+def test_the_research_prompt_says_addresses_are_not_proof():
+    from zypher_agent.research.agent import system_prompt
+    assert "email address" in system_prompt(ICP) and "not proof" in system_prompt(ICP)

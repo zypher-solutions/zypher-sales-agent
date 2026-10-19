@@ -151,6 +151,7 @@ WRITE ONLY THE BODY
 - {ending}
 - Add something NEW. Never write "following up", "just checking in", "did you see my last email", "I never heard back" or "bumping this".
 - Never ask for a call, a meeting, a demo or their time. No links, no urgency, no pressure, no emojis, no prices.
+- Never write any email address, phone number or website in the body, including their own: say "your enquiry email" or "your phone line" instead.
 - {proof}
 
 HARD LIMITS
@@ -193,7 +194,7 @@ WRITE ONLY THE BODY
 - Sentence 2: one plain sentence on how we could help, based on the offer above. Do not copy it word for word.
 - Last sentence: the ask, as one easy yes/no question. The email MUST end with a question mark. Never ask for a call, a meeting, a demo or their time.
 - Plain words a busy owner reads in five seconds. Avoid jargon (CRM, API, integration, workflow, automations) unless their own site uses it.
-- No links, no web addresses, no urgency, no pressure, no emojis. Use only plain keyboard characters: a normal hyphen (-) and no dashes such as the long dash, no special hyphens.
+- No links, no web addresses, no urgency, no pressure, no emojis. Never write any email address, phone number or website in the body, including their own: say "your enquiry email" or "your phone line" instead. Use only plain keyboard characters: a normal hyphen (-) and no dashes such as the long dash, no special hyphens.
 - Every sentence must read naturally and be true to the evidence. If a quote is only an address, a phone number or a menu item, do not build the email on it.
 
 SUBJECT

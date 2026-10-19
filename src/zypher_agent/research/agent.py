@@ -134,7 +134,7 @@ Evidence the company is the kind we serve:
 PROOF OF A PROPER COMPANY (required)
 The quote must NAME something concrete. For office_team it must name a role or department such as {', '.join(proof_words.get('office_team', [])[:12])}. For business_side it must mention
 a business sale such as {', '.join(proof_words.get('business_side', [])[:12])}. A slogan ("our professional team"), an address, a
-phone number or "contact us for a catalogue" is rejected by code.
+phone number, an email address (sales@... is not proof of a sales team) or "contact us for a catalogue" is rejected by code.
 Return `proofs`: up to 3 exact quotes from the pages showing EITHER an office team (kind office_team) OR that they sell
 to businesses by quotation, tender, project or account (kind business_side). The quote must be copied character for
 character. A shop selling to walk-in customers, a price list, a gallery or a slogan is NOT proof.{consumer_line} If the pages show
@@ -204,9 +204,15 @@ def verify_hypotheses(
     return kept, dropped
 
 
+ADDRESS_OR_LINK = re.compile(r"\S+@\S+|https?://\S+|www\.\S+", re.IGNORECASE)
+
+
 def _names_something(quote: str, words: list[str]) -> bool:
-    """True if the quote contains one of the concrete words (whole words, plurals allowed)."""
-    return any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", quote, re.IGNORECASE) for w in words)
+    """True if the quote contains one of the concrete words (whole words, plurals allowed).
+
+    Words inside an email address or link do not count: every small shop has sales@, so it proves nothing."""
+    text = ADDRESS_OR_LINK.sub(" ", quote)
+    return any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", text, re.IGNORECASE) for w in words)
 
 
 def verify_proofs(

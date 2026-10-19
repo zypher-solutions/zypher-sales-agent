@@ -124,3 +124,8 @@ Format: what we decided, why, and the trade-off. Newest first.
 - **Decision:** when no page of a company's site can be fetched (HTTP 403 from bot protection, timeouts, site down), the lead is set to `nurture` (call or LinkedIn by hand) and kept. Only a judgement about fit (or a page aimed at manipulating the AI) rejects and purges a company.
 - **Why:** after purging was introduced, four real companies were deleted for good just because their sites block bots. We also keep an honest research user agent instead of disguising it as a browser: a site that refuses bots has said so.
 - **Trade-off:** dead companies with dead websites now sit in nurture instead of being cleaned out; they cost nothing there.
+
+## 2026-10-19: No contact details in the email body; addresses are not proof of fit
+- **Decision:** the drafting prompts say by name: no email address, phone number or website in the body, including the lead's own. A new check (`contact_details`) blocks any email address or 9+ digit phone-like number in every email of the sequence. In research, words inside an email address or link no longer count as proof (`sales@acme.ae` does not show a sales team).
+- **Why:** a real draft quoted the lead's own sales@ address and failed the links check three times, so the owner got a card with Approve disabled; the same address had passed the fit gate because it contains the word "sales".
+- **Trade-off:** a genuine number in the body with 9+ digits (rare in a 50 to 80 word email) would be blocked too.

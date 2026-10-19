@@ -276,3 +276,23 @@ def test_the_offer_describes_software_automation_not_machines():
     for must in ("follow", "notion", "crm", "software only"):
         assert must in text, must
     assert "client" in offer.evidence_focus.lower() and "notion" in offer.evidence_focus.lower()
+
+
+# ---------- no email addresses or phone numbers in the body ----------
+
+def test_no_email_addresses_or_phone_numbers_in_any_email():
+    for snippet in ("sales@medianatrading.lk", "+971 52 153 4406", "04 123 4567 8", "(971) 4-555-0199"):
+        body = GOOD_BODY.replace("your site", f"your site ({snippet})")
+        for kind in ("first_touch", "new_angle", "referral", "breakup"):
+            assert "contact_details" in kind_rules(body, kind, claims=[]), (snippet, kind)
+
+
+def test_ordinary_numbers_are_not_phone_numbers():
+    for snippet in ("teams of 10 to 200 people", "since 2010", "in 2024-2025", "over 1500 orders"):
+        assert "contact_details" not in rules(make(body=GOOD_BODY.replace("your site", f"your site, {snippet},"))), snippet
+
+
+def test_the_drafting_prompts_forbid_addresses_and_phone_numbers_by_name():
+    from zypher_agent.drafting.email import followup_system_prompt, system_prompt
+    for prompt in (system_prompt(ICP), followup_system_prompt(ICP, 2)):
+        assert "email address" in prompt and "phone number" in prompt and "including their own" in prompt
