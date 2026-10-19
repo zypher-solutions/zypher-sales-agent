@@ -104,3 +104,27 @@ def test_poll_forever_survives_network_errors_and_backs_off():
     with pytest.raises(KeyboardInterrupt):
         poll_forever(client(handler), service, sleep=sleeps.append)
     assert sleeps == [5] and service.repo.events[0][0][0] == "telegram_error"
+
+
+def test_the_slash_menu_lists_every_command_the_bot_handles():
+    import json
+    import re
+
+    import httpx
+
+    from zypher_agent.integrations.telegram import COMMANDS, TelegramClient
+
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path.rsplit("/", 1)[-1], json.loads(request.content)))
+        return httpx.Response(200, json={"ok": True, "result": True})
+
+    TelegramClient("123:abc", httpx.Client(transport=httpx.MockTransport(handler))).set_commands()
+    method, body = seen[0]
+    names = [c["command"] for c in body["commands"]]
+    assert method == "setMyCommands" and names == [c for c, _ in COMMANDS]
+    assert all(re.fullmatch(r"[a-z0-9_]{1,32}", n) and 3 <= len(c["description"]) <= 256 for n, c in zip(names, body["commands"]))
+    # every command in the menu must be one the bot actually handles
+    src = open("src/zypher_agent/approval.py", encoding="utf-8").read()
+    assert all(f'"/{n}"' in src for n in names)

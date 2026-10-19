@@ -13,6 +13,17 @@ from zypher_agent.approval import ApprovalService, Button
 
 API = "https://api.telegram.org"
 
+# The menu you see when you type "/". Telegram keeps this list on its servers, per bot, so we set it every time
+# the bot starts: the menu then always matches what the code can do (and drops commands the code no longer has).
+COMMANDS = [
+    ("queue", "How many cards wait for your review"),
+    ("stats", "Emails sent, replies, bounces and opt-outs"),
+    ("status", "Is sending on, and what is waiting"),
+    ("pause", "Stop all sending now"),
+    ("resume", "Start sending again"),
+    ("suppress", "Never contact an address or company: /suppress name@company.com"),
+]
+
 
 class TelegramError(Exception):
     pass
@@ -54,6 +65,10 @@ class TelegramClient:
 
     def answer(self, callback_id: str, text: str) -> None:
         self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
+
+    def set_commands(self, commands: list[tuple[str, str]] = COMMANDS) -> None:
+        """Replace the bot's slash-command menu. Names are lowercase letters, digits and underscores only."""
+        self._call("setMyCommands", {"commands": [{"command": c, "description": d} for c, d in commands]})
 
     def get_updates(self, offset: int | None, timeout: int = 30) -> list[dict]:
         payload: dict = {"timeout": timeout, "allowed_updates": ["callback_query", "message"]}

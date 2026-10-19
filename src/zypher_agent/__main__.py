@@ -374,6 +374,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         from zypher_agent.integrations.telegram import poll_forever
 
+        try:
+            tg.set_commands()  # keep the "/" menu in Telegram in step with what the bot can do
+        except Exception as e:  # noqa: BLE001 - a menu that fails to update must not stop the bot
+            print(f"(could not update the Telegram command menu: {type(e).__name__})")
         print("Listening for Telegram taps. Ctrl+C to stop.")
         try:
             poll_forever(tg, service)
