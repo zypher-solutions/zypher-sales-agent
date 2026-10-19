@@ -111,6 +111,40 @@ class SendWorker:
         self._send(msg, lead, now, summary)
         return None
 
+    def explain(self, msg: Message, lead: Lead, now: datetime | None = None) -> str:
+        """When will this approved email leave? Uses the same rules as sending, counting approved emails ahead of it."""
+        now = now or datetime.now(timezone.utc)
+        if not self.settings.sending_enabled:
+            return "Sending is switched OFF (SENDING_ENABLED in .env), so nothing leaves until you turn it on."
+        if self.settings.send_allowlist and not allowlisted(lead.email or "", self.settings.send_allowlist):
+            return "TEST MODE: this address is not on SEND_ALLOWLIST, so it will not be sent."
+        paused, reason = self.repo.sending_state()
+        if paused:
+            return f"Sending is PAUSED ({reason}). It goes out after you send /resume."
+        stats = self.repo.send_stats(self._day_start(now))
+        # Other approved emails are sent first (oldest draft first), so they use up today's limit before this one.
+        ahead = sum(1 for m in self.repo.approved_to_send(now + timedelta(days=3650)) if m.id != msg.id)
+        decision = decide(SendContext(
+            now=now, country=lead.country, status="approved", version=msg.version, approved_version=msg.version,
+            paused=False, suppressed=False, violations=[], step=msg.step, company_already_contacted=False,
+            sent_today=stats.sent_today + ahead, first_sent_at=stats.first_sent_at, last_sent_at=stats.last_sent_at,
+            min_gap_seconds=0, env_cap=self.settings.daily_send_cap, sender_tz=self.sender_tz,
+            contact_status=lead.status,
+        ))
+        if decision.kind == "allow":
+            return "It goes out within about a minute, if the sender is running."
+        if decision.kind == "defer" and decision.until is not None:
+            tz = ZoneInfo(self._lead_tz_name(lead))
+            return f"It goes out {decision.until.astimezone(tz):%a %d %b at %H:%M} their time ({decision.reason})."
+        return f"It will not be sent yet: {decision.reason}."
+
+    @staticmethod
+    def _lead_tz_name(lead: Lead) -> str:
+        from zypher_agent.sender.policy import COUNTRIES, normalize_country
+
+        name = normalize_country(lead.country)
+        return str(COUNTRIES[name][0]) if name else "UTC"
+
     def _styled_copy(self, msg: Message, lead: Lead) -> str | None:
         """A styled version of the approved email, but only if it says EXACTLY what was approved.
 
@@ -180,6 +214,7 @@ class SendWorker:
         self.repo.log_event("sent", contact_id=lead.contact_id, message_id=msg.id, actor="sender",
                             payload={"to": lead.email, "step": msg.step, "message_id": header})
         summary.sent += 1
+        self.alert(f"✅ Sent to {lead.email} ({lead.company_name}): \"{subject}\" (email {msg.step})")
 
     # ---------- outcomes ----------
 

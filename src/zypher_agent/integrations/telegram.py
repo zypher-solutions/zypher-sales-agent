@@ -63,6 +63,15 @@ class TelegramClient:
             if "not modified" not in str(e):
                 raise
 
+    def set_buttons(self, chat_id: int, message_id: int, buttons: list[Button]) -> None:
+        """Change only the buttons under a message; the text stays."""
+        markup = {"inline_keyboard": [[{"text": b.text, "callback_data": b.data} for b in buttons]]}
+        try:
+            self._call("editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id, "reply_markup": markup})
+        except TelegramError as e:
+            if "not modified" not in str(e):
+                raise
+
     def answer(self, callback_id: str, text: str) -> None:
         self._call("answerCallbackQuery", {"callback_query_id": callback_id, "text": text})
 

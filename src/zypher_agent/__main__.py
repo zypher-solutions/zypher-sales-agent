@@ -142,6 +142,29 @@ def _testmail(settings: Settings, to: str) -> int:
     return 0
 
 
+def _attach_explainer(settings: Settings, service, repo, icp, footer) -> None:
+    """Let the approval card say when an approved email will go out, using the real sending rules."""
+    from zypher_agent.sender.transport import FakeTransport
+    from zypher_agent.sender.worker import SendWorker
+
+    service.send_explainer = SendWorker(repo, FakeTransport(), settings, footer, icp).explain  # only explains: sends nothing
+
+
+def _run_bot_in_background(settings: Settings) -> None:
+    """The Telegram listener on its own thread and its own database connection (a connection is not thread-safe)."""
+    import threading
+
+    from zypher_agent.integrations.telegram import poll_forever
+
+    pipeline, service, tg, repo = _live(settings)
+    _attach_explainer(settings, service, repo, pipeline.icp, pipeline.footer)
+    try:
+        tg.set_commands()  # keep the "/" menu in Telegram in step with what the bot can do
+    except Exception as e:  # noqa: BLE001 - a menu that fails to update must not stop the bot
+        print(f"(could not update the Telegram command menu: {type(e).__name__})")
+    threading.Thread(target=poll_forever, args=(tg, service), daemon=True, name="telegram").start()
+
+
 def _inbox_processor(settings: Settings, repo, alert):
     from zypher_agent.llm import LLMError
     from zypher_agent.llm_factory import build_llm
@@ -185,7 +208,7 @@ def _inbox(settings: Settings) -> int:
     return 0
 
 
-def _send(settings: Settings, loop: bool) -> int:
+def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
     import time
 
     from zypher_agent.db import PostgresRepo
@@ -196,7 +219,9 @@ def _send(settings: Settings, loop: bool) -> int:
 
     _require(settings, "database_url", "telegram_bot_token", "telegram_allowed_user_ids")
     if not settings.sending_enabled:
-        sys.exit("Sending is switched off. Set SENDING_ENABLED=true in .env when you are ready (run preflight first).")
+        if not with_bot:
+            sys.exit("Sending is switched off. Set SENDING_ENABLED=true in .env when you are ready (run preflight first).")
+        print("NOTE: sending is switched OFF (SENDING_ENABLED in .env). Approvals still work, but nothing is emailed.")
     icp = load_icp(settings.icp_path)
     footer = build_footer(settings, icp)
     repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
@@ -218,6 +243,9 @@ def _send(settings: Settings, loop: bool) -> int:
         except SystemExit:
             print("(follow-up drafting is off: the model, database or Telegram settings are incomplete)")
     cycle = 0
+    if with_bot:
+        _run_bot_in_background(settings)
+        print("Everything is running: Telegram buttons, sending, inbox reading and follow-ups. Ctrl+C stops it all.")
     if settings.send_allowlist:
         print(f"TEST MODE: only these recipients can receive email: {settings.send_allowlist}")
     while True:
@@ -304,6 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("send", help="one pass: send approved emails that the send policy allows right now")
     sub.add_parser("stats", help="emails sent, replies, bounces, opt-outs and what the numbers mean")
     sub.add_parser("inbox", help="read the mailbox once: bounces, replies and opt-outs about YOUR emails only")
+    sub.add_parser("start", help="run EVERYTHING in one window: Telegram buttons, sending, inbox and follow-ups")
     sub.add_parser("worker", help="keep sending approved emails as the policy allows (leave running; Ctrl+C stops)")
     tm = sub.add_parser("testmail", help="send ONE plain test email to an address you own, to check SPF/DKIM headers")
     tm.add_argument("--to", required=True, help="your own other mailbox, e.g. a Gmail address")
@@ -357,9 +386,10 @@ def main(argv: list[str] | None = None) -> int:
         return _inbox(settings)
     if args.cmd == "testmail":
         return _testmail(settings, args.to)
-    if args.cmd in ("send", "worker"):
-        return _send(settings, loop=args.cmd == "worker")
+    if args.cmd in ("send", "worker", "start"):
+        return _send(settings, loop=args.cmd != "send", with_bot=args.cmd == "start")
     pipeline, service, tg, repo = _live(settings)
+    _attach_explainer(settings, service, repo, pipeline.icp, pipeline.footer)
     if args.cmd == "refresh":
         print(f"Refreshed {service.refresh_pending()} draft(s). New cards are in Telegram.")
         return 0

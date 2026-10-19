@@ -210,7 +210,8 @@ def run_dry_run(echo: bool = True, limit: int = 10) -> tuple[DryRun, RunSummary]
         print("\n=== You review Acme: ask for changes, then approve ===")
     press(run, "Acme Freight", "suggest")
     type_text(run, "make it shorter")
-    press(run, "Acme Freight", "approve")
+    press(run, "Acme Freight", "approve")   # first tap: "send to rahul@...? Yes / Cancel"
+    press(run, "Acme Freight", "confirm")   # second tap: really approve
     if echo:
         print("\n=== You review Sunrise Clinic: reject ===")
     press(run, "Sunrise Family", "reject")

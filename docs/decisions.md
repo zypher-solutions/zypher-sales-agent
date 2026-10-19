@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-20: Approve asks first, the card says when it goes out, one command runs everything
+- **Decision:** tapping Approve no longer approves: the same card swaps its buttons to "Yes, send to <address>" and "Cancel", and only Yes approves. All checks run again on the second tap (stale version, opt-out in between, guardrails). The approved card then says what happens next, computed with the real sending rules ("goes out within a minute", "Mon 26 Oct at 09:00 their time (business hours)", "daily cap reached", sending off, paused, or test mode). Every actual send is announced in Telegram. `start` runs the Telegram listener (own thread and database connection), the sender, inbox reading, follow-up drafting and the reply-rate check in one window; releasing queued cards is behind a lock so the listener and the worker cannot show the same card twice.
+- **Why:** sending is irreversible, and two programs plus a silent Approve made the flow hard to follow.
+- **Trade-offs:** one extra tap per email. `bot` and `worker` still work separately; the lock protects threads in one program, not two separate programs, where a rare duplicate card remains possible (harmless: the second Approve says "already approved").
+
 ## 2026-10-19: Statistics and the low reply-rate alert (advice, never a pause)
 - **Decision:** `stats` (and `/stats` in Telegram) report, for the last 7 days and all time: companies emailed, first emails and follow-ups, replies with a rate (one reply per person, their first), positive replies, bounces, opt-outs and complaints, then one honest sentence on what the all-time numbers mean. After 300 companies emailed, a reply rate under 1% sends a Telegram alert (again only after 100 more emails). The alert is advice: it never pauses sending, unlike bounces and complaints, which do.
 - **Why:** without reply rates the owner cannot tell whether the offer works, which matters more than any other feature. Under 1% after 300 emails means the offer or targeting is wrong and more volume makes it worse.

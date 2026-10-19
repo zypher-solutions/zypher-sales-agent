@@ -8,6 +8,9 @@ You never need Claude to run this day to day. Open a terminal in the project fol
 2. Supabase has the tables (`schema.sql`).
 3. Telegram: your bot is `@zypher_sales_bot`; only the user ids in `TELEGRAM_ALLOWED_USER_IDS` can use it.
 
+## The simple way to run it
+Open one terminal in the project folder and run `.\zypher.ps1 start`. Leave the window open. It runs the Telegram buttons, the sending, the inbox reading and the follow-ups together. In Telegram: when you tap **Approve**, it asks "Yes, send to <address>?" and only the second tap approves. The card then tells you when the email goes out. To stop everything press Ctrl+C in that window. To update after code changes, stop it and start it again.
+
 ## Daily routine (about 10 minutes)
 
 | Step | Command | What it does | Cost |
@@ -25,7 +28,7 @@ You never need Claude to run this day to day. Open a terminal in the project fol
 - A green tick means every automatic check passed. A red warning lists what failed, and Approve is disabled.
 
 ## The buttons
-- **Approve**: records your decision. In Phase 1 nothing is emailed. Sending arrives in Phase 2.
+- **Approve**: asks "Yes, send to <address>?". Tap Yes to approve (Cancel changes nothing). The sender emails it at the next allowed moment, and the card says when.
 - **Suggest changes**: then type what you want ("shorter", "mention the customs paperwork"). A new version is written and the old card stops working.
 - **Reject**: this draft was not good. The company stays in the list and a fresh draft is written next time you run `draft`. To never contact a company again, type `/suppress theirdomain.com` in the chat.
 

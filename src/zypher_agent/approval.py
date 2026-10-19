@@ -10,6 +10,7 @@ Rules:
     so you can never approve text you have not seen.
   * Approve is hidden on a draft that failed the guardrails, and re-checked when pressed.
 """
+import threading
 import uuid
 from collections.abc import Callable
 from typing import Protocol
@@ -49,6 +50,7 @@ class Button(BaseModel):
 class Notifier(Protocol):
     def send(self, chat_id: int, text: str, buttons: list[Button] | None = None) -> int: ...
     def edit(self, chat_id: int, message_id: int, text: str) -> None: ...  # replaces text, removes buttons
+    def set_buttons(self, chat_id: int, message_id: int, buttons: list[Button]) -> None: ...  # keeps the text
     def answer(self, callback_id: str, text: str) -> None: ...
 
 
@@ -72,6 +74,12 @@ class ConsoleNotifier:
     def edit(self, chat_id: int, message_id: int, text: str) -> None:
         self.edits.append({"chat_id": chat_id, "id": message_id, "text": text})
         self._say(f"TELEGRAM edit #{message_id}", text.splitlines()[0])
+
+    def set_buttons(self, chat_id: int, message_id: int, buttons: list[Button]) -> None:
+        for card in self.sent:
+            if card["id"] == message_id and card["chat_id"] == chat_id:
+                card["buttons"] = buttons
+        self._say(f"TELEGRAM buttons on #{message_id}", "   ".join(f"[{b.text}]" for b in buttons))
 
     def answer(self, callback_id: str, text: str) -> None:
         self.answers.append({"id": callback_id, "text": text})
@@ -140,6 +148,8 @@ class ApprovalService:
         # Either way, only allowlisted user ids can press buttons or give feedback.
         self.chat_id = chat_id if chat_id is not None else allowed_user_ids[0]
         self.max_open_cards = max_open_cards
+        # Says when an approved email will go out. The CLI sets it from the send worker; None = generic wording.
+        self.send_explainer: Callable[[Message, Lead], str] | None = None
         self.sending_status: Callable[[], str] | None = None  # set by the CLI: today's count and cap for /status
 
     # ---------- outgoing ----------
@@ -150,11 +160,15 @@ class ApprovalService:
         self._send_card(msg, lead)
         self.repo.set_lead_status(lead.contact_id, "awaiting_approval")
 
-    def _send_card(self, msg: Message, lead: Lead) -> None:
+    @staticmethod
+    def _card_buttons(msg: Message) -> list[Button]:
         passed = not msg.evidence["guardrails"]["violations"]
         key = f"{msg.id}|{msg.version}"
         buttons = [Button(text="✅ Approve", data=f"approve|{key}")] if passed else []
-        buttons += [Button(text="💡 Suggest changes", data=f"suggest|{key}"), Button(text="❌ Reject", data=f"reject|{key}")]
+        return buttons + [Button(text="💡 Suggest changes", data=f"suggest|{key}"), Button(text="❌ Reject", data=f"reject|{key}")]
+
+    def _send_card(self, msg: Message, lead: Lead) -> None:
+        buttons = self._card_buttons(msg)
         sent = [m for m in self.repo.sent_messages(lead.contact_id) if m.step < msg.step]
         card = format_card(msg, lead, 1 + len(self.icp.sequence), sent[-1] if sent else None)
         tg_id = self.notifier.send(self.chat_id, card, buttons)
@@ -162,9 +176,20 @@ class ApprovalService:
             msg.id, status="awaiting_approval", telegram_chat_id=self.chat_id, telegram_message_id=tg_id
         )
 
+    def _when(self, msg: Message, lead: Lead) -> str:
+        """One sentence on what happens next to an approved email."""
+        if self.send_explainer is None:
+            return "It goes out when the sender is running and the sending rules allow."
+        try:
+            return self.send_explainer(self.repo.get_message(msg.id), lead)
+        except Exception as e:  # noqa: BLE001 - the explanation is a courtesy; approval already happened
+            self.repo.log_event("explain_failed", contact_id=lead.contact_id, payload={"error": f"{type(e).__name__}"})
+            return "It goes out when the sender is running and the sending rules allow."
+
     # ---------- the queue behind the cards ----------
 
     OPEN = ("awaiting_approval", "needs_changes")
+    _release_lock = threading.Lock()  # the bot and the worker may release cards at the same moment: never twice
 
     def open_cards(self) -> int:
         return len(self.repo.messages_with_status(list(self.OPEN)))
@@ -186,6 +211,10 @@ class ApprovalService:
 
         Called after every run, every time you clear a card, and by the worker, so the next card appears as soon
         as there is room. Nobody who has opted out since drafting is ever shown."""
+        with self._release_lock:
+            return self._release()
+
+    def _release(self) -> int:
         shown = 0
         for msg, lead in self.queued():
             if self.repo.is_suppressed(lead.email, lead.domain):
@@ -235,7 +264,7 @@ class ApprovalService:
         parts = str(cq.get("data", "")).split("|")
         try:
             action, message_id, version = parts[0], str(uuid.UUID(parts[1])), int(parts[2])
-            if action not in ("approve", "suggest", "reject") or len(parts) != 3:
+            if action not in ("approve", "confirm", "cancel", "suggest", "reject") or len(parts) != 3:
                 raise ValueError
             msg = self.repo.get_message(message_id)
         except (ValueError, IndexError, KeyError):
@@ -248,7 +277,13 @@ class ApprovalService:
         actor = f"human:{user}"
         lead = self.repo.get_lead(msg.contact_id)
 
-        if action == "approve":
+        if action == "cancel":
+            if msg.status == "awaiting_approval":
+                self.notifier.set_buttons(chat_id, tg_msg_id, self._card_buttons(msg))
+            self.notifier.answer(cb_id, "Cancelled. Nothing was approved.")
+            return
+
+        if action in ("approve", "confirm"):
             if msg.status != "awaiting_approval":
                 self.notifier.answer(cb_id, f"Already {msg.status}.")
                 return
@@ -259,10 +294,23 @@ class ApprovalService:
             if self.repo.is_suppressed(lead.email, lead.domain):  # they may have opted out since drafting
                 self.notifier.answer(cb_id, "Blocked: this contact is on the do-not-contact list.")
                 return
+            if action == "approve":  # sending cannot be undone, so ask once more, naming exactly who gets it
+                key = f"{msg.id}|{msg.version}"
+                address = (lead.email or "")[:38]
+                self.notifier.set_buttons(chat_id, tg_msg_id, [
+                    Button(text=f"✅ Yes, send to {address}", data=f"confirm|{key}"),
+                    Button(text="↩ Cancel", data=f"cancel|{key}"),
+                ])
+                self.notifier.answer(cb_id, f"Send to {lead.email} ({lead.company_name})? Tap Yes to confirm.")
+                return
             self.repo.update_message(msg.id, status="approved")
             self.repo.set_lead_status(lead.contact_id, "approved")
             self.repo.log_event("approved", contact_id=lead.contact_id, message_id=msg.id, actor=actor, payload={"version": msg.version})
-            self.notifier.edit(chat_id, tg_msg_id, f"✅ APPROVED v{msg.version}. Nothing was sent: sending is disabled in Phase 1.\n\nSubject: {msg.subject}\n\n{msg.body}")
+            when = self._when(msg, lead)
+            self.notifier.edit(
+                chat_id, tg_msg_id,
+                f"✅ APPROVED v{msg.version} for {lead.email}\n{when}\n\nSubject: {msg.subject}\n\n{msg.body}",
+            )
             self.notifier.answer(cb_id, "✅ Approved")
 
         elif action == "reject":

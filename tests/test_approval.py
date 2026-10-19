@@ -49,6 +49,12 @@ def tap(service, msg, action, user=OWNER, version=None):
     }})
 
 
+def approve(service, msg, user=OWNER):
+    """Both taps of the approval: Approve, then 'Yes, send'."""
+    tap(service, msg, "approve", user=user)
+    tap(service, msg, "confirm", user=user)
+
+
 def say(service, text, user=OWNER):
     service.handle_update({"message": {"from": {"id": user}, "chat": {"id": user}, "text": text}})
 
@@ -83,18 +89,18 @@ def test_failed_draft_hides_approve_and_shows_why():
 
 def test_approve_records_decision_and_sends_nothing():
     repo, notifier, service, msg, _ = world()
-    tap(service, msg, "approve")
+    approve(service, msg)
     assert repo.get_message(msg.id).status == "approved"
     assert repo.contacts[msg.contact_id]["status"] == "approved"
     assert any(e["type"] == "approved" and e["actor"] == f"human:{OWNER}" for e in repo.events)
-    assert "Nothing was sent" in notifier.edits[-1]["text"] and popup(notifier) == "✅ Approved"
+    assert "APPROVED v1 for ann@acme.com" in notifier.edits[-1]["text"] and popup(notifier) == "✅ Approved"
     assert len(notifier.sent) == 1  # no email, no extra message: only the original card exists
 
 
 def test_double_tap_is_idempotent():
     repo, notifier, service, msg, _ = world()
-    tap(service, msg, "approve")
-    tap(service, msg, "approve")
+    approve(service, msg)
+    tap(service, msg, "confirm")
     assert popup(notifier) == "Already approved."
     assert sum(e["type"] == "approved" for e in repo.events) == 1
 
@@ -135,7 +141,7 @@ def test_suggest_changes_then_feedback_redrafts_and_supersedes_old_card():
     tap(service, msg, "approve", version=1)  # the stale v1 card
     assert repo.get_message(msg.id).status == "awaiting_approval"
     assert "out of date" in popup(notifier)
-    tap(service, new, "approve")
+    approve(service, new)
     assert repo.get_message(msg.id).status == "approved"
 
 
