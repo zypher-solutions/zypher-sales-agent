@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     # Where approval cards go. Unset: the first allowed user's private chat. Set it to a group chat id
     # (negative number) so partners in that group can review and approve too.
     telegram_approval_chat_id: int | None = None
+    # Never more than this many cards waiting for you at once; the rest queue quietly in the database.
+    max_open_cards: int = 10
 
     # Sender identity comes from .env (per business). Empty required values fail the footer check on purpose.
     sender_name: str = ""

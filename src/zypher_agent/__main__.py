@@ -33,7 +33,8 @@ def _live(settings: Settings):
     llm = build_llm(settings, repo)
     tg = TelegramClient(settings.telegram_bot_token.get_secret_value())
     service = ApprovalService(
-        repo, llm, icp, footer, tg, settings.telegram_allowed_user_ids, settings.telegram_approval_chat_id
+        repo, llm, icp, footer, tg, settings.telegram_allowed_user_ids, settings.telegram_approval_chat_id,
+        settings.max_open_cards,
     )
     site = settings.sender_website.removeprefix("https://").removeprefix("http://")
     agent = f"{icp.company['name']} research bot" + (f" (+https://{site})" if site else "")

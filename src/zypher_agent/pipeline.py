@@ -60,15 +60,18 @@ class Pipeline:
                 + ". Set OPT_OUT_LINE, SENDER_EMAIL and SENDER_POSTAL_ADDRESS in .env."
             )
         summary = RunSummary()
-        for status, stage in (("new", self._research), ("researched", self._draft), ("drafted", self._deliver)):
+        for status, stage in (("new", self._research), ("researched", self._draft)):
             for lead in self.repo.leads_with_status(status, limit):
                 if self._suppressed(lead, summary):
                     continue
                 self._guard(summary, lead, stage)
-        self.run_followups(limit, summary=summary)
+        self.run_followups(limit, summary=summary, release=False)
+        summary.delivered += self.approvals.release_queue()  # shows cards up to your open-card limit; the rest wait
         return summary
 
-    def run_followups(self, limit: int = 5, now: datetime | None = None, summary: RunSummary | None = None) -> RunSummary:
+    def run_followups(
+        self, limit: int = 5, now: datetime | None = None, summary: RunSummary | None = None, release: bool = True
+    ) -> RunSummary:
         """Draft the next email for every lead whose wait is over. Each one goes to you for approval, like the first.
 
         A lead is a candidate only while its status is 'in_sequence': that means at least one email has been sent,
@@ -88,6 +91,8 @@ class Pipeline:
                 drafted += self._followup(lead, summary, last_step, last_sent_at, now)
 
             self._guard(summary, lead, followup)
+        if release:
+            self.approvals.release_queue()
         return summary
 
     def _followup(self, lead: Lead, summary: RunSummary, last_step: int, last_sent_at: datetime, now: datetime) -> int:
@@ -111,7 +116,7 @@ class Pipeline:
             contact_id=lead.contact_id, subject=result.draft.subject, body=result.text,
             evidence=evidence_for(result, report), step=spec.step,
         ))
-        self.approvals.deliver(msg.id)
+        self.repo.set_lead_status(lead.contact_id, "drafted")  # queued: shown to you when there is room
         summary.followups += 1
         return 1
 

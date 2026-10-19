@@ -67,6 +67,10 @@ def poll_once(tg: TelegramClient, service: ApprovalService, offset: int | None, 
     for update in tg.get_updates(offset, timeout):
         offset = update["update_id"] + 1
         service.handle_update(update)
+    try:  # you cleared a card: show the next queued one
+        service.release_queue()
+    except Exception as e:  # noqa: BLE001 - a queue hiccup must not stop the bot from listening
+        service.repo.log_event("queue_error", payload={"error": f"{type(e).__name__}: {e}"})
     return offset
 
 

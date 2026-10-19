@@ -29,13 +29,15 @@ HELP = (
     "Tap Suggest changes under a draft, then type what to change. Approve and Reject are buttons.\n"
     "/suppress name@company.com  never contact this address again\n"
     "/suppress company.com  never contact anyone at this domain again\n"
-    "/pause  stop all sending now    /resume  start again    /status  what is waiting and sent"
+    "/pause  stop all sending now    /resume  start again    /status  what is waiting and sent\n"
+    "/queue  how many cards are waiting for you and how many are queued behind them"
 )
 
 
 EMAIL_BANNER = "━━━ THE EMAIL (everything between the lines is what they receive) ━━━"
 END_BANNER = "━━━ END OF EMAIL ━━━"
 NOTES_BANNER = "📝 ONLY FOR YOU, NOT SENT: why the draft says what it says"
+FOLLOWUP_BANNER = "━━━ EMAIL (same signature and opt-out line as email 1) ━━━"
 
 
 class Button(BaseModel):
@@ -75,7 +77,29 @@ class ConsoleNotifier:
         self._say("TELEGRAM popup", text)
 
 
-def format_card(msg: Message, lead: Lead) -> str:
+def format_followup_card(msg: Message, lead: Lead, total_steps: int, previous: Message | None) -> str:
+    """A short card: you have already seen the signature and the evidence on email 1, so only what is NEW is shown."""
+    from zypher_agent.drafting.email import greeting_for
+
+    ev = msg.evidence
+    violations = ev["guardrails"]["violations"]
+    status = ("⚠️ FAILED CHECKS (Approve is disabled): " + "; ".join(f"{v['rule']}" for v in violations)
+              if violations else "✅ Passed all checks")
+    when = f", sent {previous.sent_at:%a %d %b}" if previous is not None and previous.sent_at else ""
+    head = (f"🔁 Follow-up {msg.step - 1} · email {msg.step} of {total_steps} · {lead.company_name} ({lead.domain})\n"
+            f"To: {lead.contact_name or 'there'} <{lead.email}>"
+            + (f"\nEmail {msg.step - 1} was: \"{previous.subject}\"{when}" if previous is not None else ""))
+    body = ev["draft"]["body"].strip()
+    mail = f"{FOLLOWUP_BANNER}\nSubject: {msg.subject} (sent in the same thread)\n\n{greeting_for(lead.contact_name)}\n\n{body}"
+    cited = {c["evidence_id"] for c in ev["draft"].get("claims", [])}
+    notes = [f"{h['id']}: “{h['quote'][:110]}”" for h in ev["hypotheses"] if h["id"] in cited]
+    text = "\n\n".join([head, status, mail] + (["📝 Based on: " + " | ".join(notes)] if notes else []))
+    return text[:CARD_LIMIT]
+
+
+def format_card(msg: Message, lead: Lead, total_steps: int = 4, previous: Message | None = None) -> str:
+    if msg.step > 1:
+        return format_followup_card(msg, lead, total_steps, previous)
     ev = msg.evidence
     violations = ev["guardrails"]["violations"]
     status = (
@@ -105,7 +129,7 @@ def format_card(msg: Message, lead: Lead) -> str:
 class ApprovalService:
     def __init__(
         self, repo: Repository, llm: LLM, icp: Icp, footer: Footer, notifier: Notifier,
-        allowed_user_ids: list[int], chat_id: int | None = None,
+        allowed_user_ids: list[int], chat_id: int | None = None, max_open_cards: int = 10,
     ) -> None:
         if not allowed_user_ids:  # an empty allowlist must mean "nobody", never "everybody"
             raise ValueError("TELEGRAM_ALLOWED_USER_IDS is empty: refusing to start with no authorized user")
@@ -114,6 +138,7 @@ class ApprovalService:
         # Cards go to a shared group if configured (partners), else the first allowed user's private chat.
         # Either way, only allowlisted user ids can press buttons or give feedback.
         self.chat_id = chat_id if chat_id is not None else allowed_user_ids[0]
+        self.max_open_cards = max_open_cards
         self.sending_status: Callable[[], str] | None = None  # set by the CLI: today's count and cap for /status
 
     # ---------- outgoing ----------
@@ -129,10 +154,56 @@ class ApprovalService:
         key = f"{msg.id}|{msg.version}"
         buttons = [Button(text="✅ Approve", data=f"approve|{key}")] if passed else []
         buttons += [Button(text="💡 Suggest changes", data=f"suggest|{key}"), Button(text="❌ Reject", data=f"reject|{key}")]
-        tg_id = self.notifier.send(self.chat_id, format_card(msg, lead), buttons)
+        sent = [m for m in self.repo.sent_messages(lead.contact_id) if m.step < msg.step]
+        card = format_card(msg, lead, 1 + len(self.icp.sequence), sent[-1] if sent else None)
+        tg_id = self.notifier.send(self.chat_id, card, buttons)
         self.repo.update_message(
             msg.id, status="awaiting_approval", telegram_chat_id=self.chat_id, telegram_message_id=tg_id
         )
+
+    # ---------- the queue behind the cards ----------
+
+    OPEN = ("awaiting_approval", "needs_changes")
+
+    def open_cards(self) -> int:
+        return len(self.repo.messages_with_status(list(self.OPEN)))
+
+    def queued(self) -> list[tuple[Message, Lead]]:
+        """Drafts written but not shown yet, most urgent first: follow-ups (people who already know us) before
+        new first emails, oldest first within each group."""
+        out = []
+        for m in self.repo.messages_with_status(["draft"]):
+            if m.direction != "outbound":
+                continue
+            lead = self.repo.get_lead(m.contact_id)
+            if lead.status == "drafted":
+                out.append((m, lead))
+        return sorted(out, key=lambda t: (-t[0].step,))
+
+    def release_queue(self) -> int:
+        """Show queued drafts as cards until `max_open_cards` are waiting for you. Returns how many were shown.
+
+        Called after every run, every time you clear a card, and by the worker, so the next card appears as soon
+        as there is room. Nobody who has opted out since drafting is ever shown."""
+        shown = 0
+        for msg, lead in self.queued():
+            if self.repo.is_suppressed(lead.email, lead.domain):
+                self.repo.update_message(msg.id, status="rejected", last_error="opted out before review")
+                self.repo.set_lead_status(lead.contact_id, "unsubscribed")
+                self.repo.log_event("skipped_suppressed", contact_id=lead.contact_id, message_id=msg.id, actor="system")
+                continue
+            if self.open_cards() >= self.max_open_cards:
+                break
+            self.deliver(msg.id)
+            shown += 1
+        return shown
+
+    def queue_summary(self) -> str:
+        queued = self.queued()
+        follow = sum(m.step > 1 for m, _ in queued)
+        return (f"📋 Waiting for your review: {self.open_cards()} of {self.max_open_cards} slots\n"
+                f"Queued behind them: {len(queued)} ({follow} follow-ups, {len(queued) - follow} new first emails)\n"
+                f"A new card appears as soon as you approve, reject or change one.")
 
     # ---------- incoming ----------
 
@@ -227,6 +298,9 @@ class ApprovalService:
         command = text.split(" ")[0].split("@")[0]  # "/suppress@BotName x" is how groups send it
         if command == "/suppress":
             self._suppress(chat_id, user, text.split(maxsplit=1)[1] if " " in text else "")
+            return
+        if command == "/queue":
+            self.notifier.send(chat_id, self.queue_summary())
             return
         if command in ("/pause", "/resume", "/status"):
             self._control(command, chat_id, user)

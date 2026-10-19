@@ -47,6 +47,9 @@ Set in `.env`: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_EMAIL`, `SENDER_PHONE`, `S
 6. Only then clear `SEND_ALLOWLIST` to go live. The rules (business hours in the lead's country, 5 emails a day at first, spacing, never twice) apply automatically.
 Telegram controls: `/pause`, `/resume`, `/status`.
 
+## The card limit and `/queue`
+Telegram never shows more than 10 cards at once (`MAX_OPEN_CARDS` in `.env`). If more are ready, they wait quietly, and the next card appears as soon as you approve, reject or change one. Follow-ups come before new first emails. Type `/queue` in the chat to see how many are waiting for you and how many are queued behind them. A follow-up card is short: which email it is, what the previous email was, the new text, and the evidence it is based on. The signature is the same as email 1 and is not repeated.
+
 ## Follow-ups
 You do not schedule anything. When a lead has not replied, the system writes the next email once the wait is over (3, then 5, then 9 working days in the lead's country), and a card appears in Telegram. You approve it like the first one. `.\zypher.ps1 draft` checks for due follow-ups, and the worker checks about every 30 minutes. They are sent as replies in the same thread. The sequence stops by itself when someone replies, bounces or opts out, and after the fourth email it never contacts them again.
 

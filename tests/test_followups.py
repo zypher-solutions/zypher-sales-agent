@@ -44,7 +44,8 @@ def test_after_three_working_days_email_two_goes_to_you_for_approval():
     assert s.followups == 1 and steps(run, cid) == [1, 2]
     two = next(m for m in run.repo.messages.values() if m.step == 2)
     assert two.status == "awaiting_approval" and run.repo.contacts[cid]["status"] == "awaiting_approval"
-    assert "Evidence:" in run.notifier.sent[-1]["text"] and "Draft v1" in run.notifier.sent[-1]["text"]
+    card = run.notifier.sent[-1]["text"]
+    assert "Follow-up 1" in card and "email 2 of 4" in card and "Evidence:" not in card  # the short card
     assert two.evidence["guardrails"]["violations"] == []
 
 
@@ -165,3 +166,16 @@ def test_every_step_in_the_config_has_a_kind_with_rules_and_a_canned_dry_run_dra
     assert [s.step for s in ICP.sequence] == [2, 3, 4]
     assert [kind_for_step(ICP, n) for n in (1, 2, 3, 4)] == ["first_touch", "new_angle", "referral", "breakup"]
     assert set(FOLLOWUPS) == {2, 3, 4} and all(isinstance(d, EmailDraft) for d in FOLLOWUPS.values())
+
+
+def test_follow_ups_wait_in_the_queue_when_you_already_have_enough_cards_open():
+    run, cid = world()
+    run.service.max_open_cards = 0  # no room at all
+    run.pipeline.run_followups(now=at(23))
+    two = next(m for m in run.repo.messages.values() if m.step == 2)
+    assert two.status == "draft" and run.repo.contacts[cid]["status"] == "drafted"  # written, not shown
+    run.pipeline.run_followups(now=at(24))
+    assert steps(run, cid) == [1, 2]  # and not written again while it waits its turn
+    run.service.max_open_cards = 10
+    assert run.service.release_queue() == 1
+    assert run.repo.get_message(two.id).status == "awaiting_approval" and "Follow-up 1" in run.notifier.sent[-1]["text"]
