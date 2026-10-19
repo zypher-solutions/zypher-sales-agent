@@ -179,7 +179,7 @@ def test_result_claims_in_words_are_rejected(claim):
 
 def test_long_pitchy_subjects_are_rejected():
     assert "subject" in rules(make(subject="Quick idea to automate your shipment quote process"))
-    assert "subject" not in rules(make(subject="quote requests"))
+    assert "subject" not in rules(make(subject="Quote requests"))
 
 
 def test_vague_draft_that_could_go_to_anyone_is_rejected():
@@ -201,7 +201,7 @@ def test_using_two_details_from_the_quote_passes():
 
 # ---------- follow-up kinds: each step has its own rules ----------
 
-def kind_rules(body, kind, claims=None, subject="quote requests"):
+def kind_rules(body, kind, claims=None, subject="Quote requests"):
     d = make(body=body, subject=subject, claims=claims if claims is not None else [Claim(text="x", evidence_id="h1")])
     return {v.rule for v in check_draft(d, [HYP], ICP, FOOTER, kind=kind, allow_proof=(kind == "referral")).violations}
 
@@ -245,3 +245,19 @@ def test_client_names_come_from_config_not_code():
     # the first touch must never name the client either; the name list lives in icp.yaml
     assert "client_named" in rules(make(body=GOOD_BODY + " We built this for USR."))
     assert "client_named" not in rules()
+
+
+def test_subjects_use_sentence_case():
+    # Seen on a real card: "quote requests" in all lowercase looked careless.
+    assert "subject" in rules(make(subject="quote requests"))
+    assert "subject" in rules(make(subject="QUOTE REQUESTS"))
+    assert "subject" not in rules(make(subject="Quote requests")) and "subject" not in rules(make(subject="2 quick questions"))
+    assert "subject" not in rules(make(subject="VAT"))  # a single acronym is fine
+
+
+def test_special_dashes_and_hyphens_are_rejected_so_the_model_rewrites():
+    # Seen live: "one\u2011page" (non-breaking hyphen) and long dashes appeared in real drafts.
+    assert "typography" in rules(make(body=GOOD_BODY.replace("one-page", "one\u2011page")))
+    assert "typography" in rules(make(body=GOOD_BODY.replace("No call needed.", "No call needed \u2014 really.")))
+    assert "typography" in rules(make(subject="Quotes \u2013 fast"))
+    assert "typography" not in rules()  # a normal hyphen is fine

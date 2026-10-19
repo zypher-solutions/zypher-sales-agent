@@ -30,7 +30,7 @@ from zypher_agent.sender.worker import SendWorker, allowlisted
 ICP = load_icp(Settings(_env_file=None).icp_path)
 DUBAI = ZoneInfo("Asia/Dubai")
 TUE_10AM = datetime(2026, 10, 20, 10, 0, tzinfo=DUBAI).astimezone(UTC)  # inside the UAE window
-GOOD = EmailDraft(subject="quote requests", body=GOOD_BODY, claims=[Claim(text="q", evidence_id="h1")])
+GOOD = EmailDraft(subject="Quote requests", body=GOOD_BODY, claims=[Claim(text="q", evidence_id="h1")])
 REPORT = ResearchReport(hypotheses=[HYP], summary="A freight company.")
 
 
@@ -69,7 +69,7 @@ def test_an_approved_email_is_sent_once_and_recorded():
     s = w.run()
     assert s.sent == 1 and len(w.transport.sent) == 1
     out, saved = w.transport.sent[0], w.state(msg.id)
-    assert out.to == "owner@acme.ae" and out.subject == "quote requests" and out.from_addr == FOOTER.sender_email
+    assert out.to == "owner@acme.ae" and out.subject == "Quote requests" and out.from_addr == FOOTER.sender_email
     assert saved.status == "sent" and saved.sent_at == TUE_10AM and saved.message_id_header == out.message_id
     assert w.repo.contacts[msg.contact_id]["status"] == "in_sequence"
     assert [e["type"] for e in w.repo.events if e["type"] == "sent"] == ["sent"]
@@ -225,7 +225,7 @@ def test_a_follow_up_is_threaded_under_the_first_email():
     follow = w.message(cid, step=2)
     w.run(TUE_10AM + timedelta(days=3, minutes=1))
     out = w.transport.sent[1]
-    assert out.in_reply_to == sent_first.message_id and out.subject == "Re: quote requests"
+    assert out.in_reply_to == sent_first.message_id and out.subject == "Re: Quote requests"
     assert w.state(follow.id).in_reply_to == sent_first.message_id and w.state(first.id).status == "sent"
 
 

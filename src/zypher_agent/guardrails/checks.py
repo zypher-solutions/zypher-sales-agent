@@ -43,6 +43,10 @@ GENERIC_WORDS = set(
 MIN_SHARED_DETAIL = 2
 WORD = re.compile(r"[a-z]{5,}|\d{2,}")
 
+# Characters that render badly in some mail apps (non-breaking hyphens) or read as machine-written (dashes).
+# The model is told to rewrite; we never silently edit its text.
+TYPOGRAPHY = re.compile("[‐‑‒–—―− ]")
+
 # Result claims written in words instead of digits ("cut it in half", "double your replies") are still numbers.
 RESULT_CLAIM = re.compile(
     r"\bin half\b|\bhalve[sd]?\b|\b(double|triple|quadruple)[sd]?\b|\b\d+x\b|\btenfold\b",
@@ -180,6 +184,10 @@ def check_draft(
         hints = ", ".join(sorted(quote_words, key=len, reverse=True)[:6])
         fail("specific_detail", f"mention a concrete detail from your cited evidence, such as: {hints}")
 
+    # typography: plain characters only
+    if TYPOGRAPHY.search(text):
+        fail("typography", "use a normal hyphen (-) or a full stop instead of dashes and special hyphens")
+
     # tone and structure
     stripped = body.rstrip()
     if kr["question"] and not stripped.endswith("?"):
@@ -198,6 +206,11 @@ def check_draft(
         fail("body_wrapper", "body must not contain a greeting or sign-off; code adds them")
     if not subject.strip() or len(subject) > 80:
         fail("subject", "subject must be 1-80 characters")
+    first = subject.strip()[:1]
+    if first and not (first.isupper() or first.isdigit()):
+        fail("subject", "start the subject with a capital letter (sentence case, for example 'Quote requests')")
+    if len(subject.split()) > 1 and subject.strip().isupper():
+        fail("subject", "do not write the subject in ALL CAPITALS")
     if len(subject.split()) > 6:
         fail("subject", "subject must be 6 words or fewer: short subjects read like a colleague, not a pitch")
     if re.match(r"\s*(re|fwd?):", subject, re.IGNORECASE) or subject.lower().startswith("subject:"):

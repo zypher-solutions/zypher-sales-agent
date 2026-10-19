@@ -149,7 +149,7 @@ HARD LIMITS
 - Never name any client. No case studies, no "our clients", no results, no numbers other than the three reply digits of a last email.
 
 SUBJECT
-2 to 5 plain words, lowercase. (The system threads this email under the first one, so the subject is not shown.)
+2 to 5 plain words in sentence case: the first word starts with a capital letter and the rest are lowercase, except proper names. (The system threads this email under the first one, so the subject is not shown.)
 
 CLAIMS
 For every factual statement about the recipient's company, add a claim {{text, evidence_id}} citing the evidence id. A follow-up that makes no statement about their company needs no claims.
@@ -183,10 +183,11 @@ WRITE ONLY THE BODY
 - Sentence 2: one plain sentence on how we could help, based on the offer above. Do not copy it word for word.
 - Last sentence: the ask, as one easy yes/no question. The email MUST end with a question mark. Never ask for a call, a meeting, a demo or their time.
 - Plain words a busy owner reads in five seconds. Avoid jargon (CRM, API, integration, workflow, automations) unless their own site uses it.
-- No links, no web addresses, no urgency, no pressure, no emojis.
+- No links, no web addresses, no urgency, no pressure, no emojis. Use only plain keyboard characters: a normal hyphen (-) and no dashes such as the long dash, no special hyphens.
+- Every sentence must read naturally and be true to the evidence. If a quote is only an address, a phone number or a menu item, do not build the email on it.
 
 SUBJECT
-2 to 5 plain words, lowercase, like a note from a colleague (for example "quote requests" or "booking confirmations"). No pitch words such as automate, boost, solution, idea.
+2 to 5 plain words in sentence case (first word capitalised, the rest lowercase except proper names), like a note from a colleague (for example "Quote requests" or "Booking confirmations"). No pitch words such as automate, boost, solution, idea.
 
 HARD LIMITS
 - Never use these phrases: {', '.join(rules.never_say)}.

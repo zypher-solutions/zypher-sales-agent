@@ -118,20 +118,20 @@ CLINIC_BODY = (
 
 FOLLOWUPS = {
     2: EmailDraft(
-        subject="shipment paperwork",
+        subject="Shipment paperwork",
         body=("I also noticed you are hiring an operations coordinator for shipment documentation. Is that role mostly "
               "retyping the same shipment details into different forms? If so, the same sketch idea could cover those "
               "documents too, so the new hire starts on real work. Would a one-page sketch for that help?"),
         claims=[Claim(text="hiring an operations coordinator for shipment documentation", evidence_id="h2")],
     ),
     3: EmailDraft(
-        subject="who handles this",
+        subject="Who handles this",
         body=("Who looks after quotes and shipment paperwork at your company? I would like to send that person a short "
               "note. We built something similar for a Dubai company. Is it you, or someone else?"),
         claims=[],
     ),
     4: EmailDraft(
-        subject="last note",
+        subject="Last note",
         body=("This is my last note, so I will not keep emailing you. If a one-page sketch of automating your quotes would "
               "help, reply 1. If the timing is wrong, reply 2. If you would rather not hear from me, reply 3. Thanks for reading."),
         claims=[],
