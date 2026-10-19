@@ -346,7 +346,11 @@ class InboxProcessor:
     def _reply(self, p: ParsedMail, msg: Message, lead: Lead) -> None:
         label = self._classify(p, lead)
         complaint = looks_like_complaint(p.text)
-        opt_out = complaint or is_clear_opt_out(p.text) or label in ("unsubscribe", "not_interested")
+        # The subject counts too: a mail client's Unsubscribe button sends subject "unsubscribe" and an empty body.
+        opt_out = (
+            complaint or is_clear_opt_out(p.text) or is_clear_opt_out(p.subject)
+            or label in ("unsubscribe", "not_interested")
+        )
         stored = self.repo.save_message(NewMessage(
             contact_id=lead.contact_id, subject=p.subject, body=p.text, direction="inbound", status="delivered",
             reply_class=label, step=msg.step, evidence={"from": p.sender},

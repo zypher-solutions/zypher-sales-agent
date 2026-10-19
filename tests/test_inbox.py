@@ -310,3 +310,20 @@ def test_a_bounce_also_withdraws_unsent_follow_ups():
     box.add(bounce_mail())
     proc.run_once()
     assert repo.get_message(waiting.id).status == "rejected"
+
+
+def test_the_gmail_unsubscribe_button_is_honoured_even_with_an_empty_body():
+    # We add a List-Unsubscribe header, so Gmail shows an Unsubscribe button. A click sends a mail whose SUBJECT
+    # says "unsubscribe" and whose body is empty. It must suppress the address like any other opt-out.
+    repo, box, proc, alerts, cid, _ = world({})  # even with the model down
+    proc.run_once()
+    box.add(raw({"From": "Ann <owner@acme.ae>", "To": "muhammedhasheem@zypher-solutions.com", "Subject": "unsubscribe",
+                 "In-Reply-To": OURS, "Message-ID": "<unsub1@acme.ae>"}, ""))
+    proc.run_once()
+    assert repo.is_suppressed("owner@acme.ae", None) and repo.contacts[cid]["status"] == "unsubscribed"
+    assert "do-not-contact" in alerts[-1]
+
+
+def test_a_subject_line_alone_can_carry_a_clear_opt_out_but_normal_subjects_do_not():
+    assert is_clear_opt_out("Re: please unsubscribe me") and is_clear_opt_out("unsubscribe")
+    assert not is_clear_opt_out("Re: Quote requests") and not is_clear_opt_out("Re: Customs documents")
