@@ -119,3 +119,8 @@ Format: what we decided, why, and the trade-off. Newest first.
 - **Why not delete everything:** imports skip a company only because they recognise its domain. With no trace, the next `find` would add it again and pay Apify and the model to reject it a second time.
 - **Kept on purpose:** a company we already emailed is never purged (replies and opt-outs need the history); it is marked disqualified instead. The AI call log (cost records) is kept as the project rules require, including the page text sent to the model.
 - **Trade-off:** a rejection is permanent for now. The stored icp.yaml version allows a later "give these another chance" command if the targeting widens; not built.
+
+## 2026-10-19: An unreadable website parks the lead; it is never a rejection
+- **Decision:** when no page of a company's site can be fetched (HTTP 403 from bot protection, timeouts, site down), the lead is set to `nurture` (call or LinkedIn by hand) and kept. Only a judgement about fit (or a page aimed at manipulating the AI) rejects and purges a company.
+- **Why:** after purging was introduced, four real companies were deleted for good just because their sites block bots. We also keep an honest research user agent instead of disguising it as a browser: a site that refuses bots has said so.
+- **Trade-off:** dead companies with dead websites now sit in nurture instead of being cleaned out; they cost nothing there.

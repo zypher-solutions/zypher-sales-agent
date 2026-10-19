@@ -162,3 +162,37 @@ def test_a_rejected_company_is_purged_and_never_researched_again():
     run.pipeline.run(10)
     assert not run.repo.company_exists("devcraft-demo.com")
     assert not any("devcraft" in c["user"].lower() for c in run.llm.calls[calls:])  # never sent to the model again
+
+
+# ---------- a website we cannot read is not a rejection ----------
+
+def test_a_site_that_blocks_us_is_parked_for_a_human_not_rejected():
+    from zypher_agent.models import CompanyIn, ContactIn
+    run = build(echo=False)
+    cid = run.repo.upsert_lead(CompanyIn(name="Blocked LLC", domain="blocked-site.ae"), ContactIn(phone="+971 4"))
+    summary = run.pipeline.run(10)
+    assert run.repo.get_lead(cid).status == "nurture" and run.repo.company_exists("blocked-site.ae")
+    assert not run.repo.is_rejected("blocked-site.ae") and summary.unreadable == 1
+    event = next(e for e in run.repo.events if e["type"] == "website_unreadable")
+    assert "site not found" in event["payload"]["errors"][0]
+    assert not any(e["type"] == "disqualified" and e["payload"]["domain"] == "blocked-site.ae" for e in run.repo.events)
+
+
+# ---------- progress lines while it works ----------
+
+def test_progress_is_reported_for_every_company_as_it_goes():
+    run = build(echo=False)
+    lines: list[str] = []
+    run.pipeline.progress = lines.append
+    run.pipeline.run(10)
+    text = "\n".join(lines)
+    for name in ("Acme Freight Co", "Sunrise Family Clinic", "DevCraft Studio", "Ghost Trading LLC"):
+        assert f"Researching {name}" in text, name
+    assert "rejected (it_or_software_vendor)" in text and "ready to draft" in text
+    assert "Writing the email for Acme Freight Co" in text and "drafted" in text
+    assert "card(s) sent to Telegram" in text
+
+
+def test_progress_is_silent_by_default():
+    run = build(echo=False)
+    run.pipeline.run(10)  # no progress callback set: nothing printed, nothing breaks

@@ -38,7 +38,9 @@ def _live(settings: Settings):
     )
     site = settings.sender_website.removeprefix("https://").removeprefix("http://")
     agent = f"{icp.company['name']} research bot" + (f" (+https://{site})" if site else "")
-    return Pipeline(repo, HttpFetcher(user_agent=agent), llm, icp, footer, service), service, tg, repo
+    pipeline = Pipeline(repo, HttpFetcher(user_agent=agent), llm, icp, footer, service,
+                        progress=lambda line: print(line, flush=True))
+    return pipeline, service, tg, repo
 
 
 def _source(settings: Settings, args) -> int:
@@ -84,7 +86,7 @@ def _source(settings: Settings, args) -> int:
 MEANING = {
     "new": "found, not researched yet", "researched": "ready to draft", "drafted": "drafted, card not sent",
     "awaiting_approval": "WAITING FOR YOU in Telegram", "approved": "approved by you (nothing sent yet)",
-    "nurture": "no public email: call or LinkedIn by hand",
+    "nurture": "call or LinkedIn by hand (no public email, or website blocks us)",
     "unsubscribed": "opted out", "needs_changes": "waiting for your feedback text",
     "in_sequence": "emailed: follow-ups are drafted on schedule", "replied": "replied: your turn",
     "bounced": "address bounced: not emailed again", "disqualified": "not a fit (emailed before, so history kept)",
@@ -322,6 +324,7 @@ def _print_summary(s) -> None:
     print(
         f"\nResearched: {s.researched} | disqualified: {s.disqualified} | drafted: {s.drafted} | "
         f"sent to Telegram for approval: {s.delivered} | follow-ups drafted: {s.followups} | no usable email: {s.no_email} | "
+        f"website unreadable: {s.unreadable} | "
         f"skipped (opted out): {s.suppressed} | failed: {len(s.failed)}"
     )
     for f in s.failed:

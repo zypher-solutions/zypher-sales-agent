@@ -36,6 +36,7 @@ class RunSummary:
     delivered: int = 0
     suppressed: int = 0
     no_email: int = 0
+    unreadable: int = 0  # website blocked us or was down: parked for a human, not rejected
     followups: int = 0  # follow-up drafts sent to you for approval
     completed: int = 0  # sequences that reached their end
     failed: list[str] = field(default_factory=list)
@@ -44,12 +45,17 @@ class RunSummary:
 class Pipeline:
     def __init__(
         self, repo: Repository, fetcher: Fetcher, llm: LLM, icp: Icp, footer: Footer, approvals: ApprovalService,
-        email_ok: Callable[[str], bool] = has_mail_server,
+        email_ok: Callable[[str], bool] = has_mail_server, progress: Callable[[str], None] | None = None,
     ) -> None:
         self.repo, self.fetcher, self.llm, self.icp, self.footer, self.approvals = (
             repo, fetcher, llm, icp, footer, approvals,
         )
         self.email_ok = email_ok
+        self.progress = progress  # one line per step, so a slow run never looks frozen (None = silent)
+
+    def _say(self, line: str) -> None:
+        if self.progress is not None:
+            self.progress(line)
 
     def run(self, limit: int = 5) -> RunSummary:
         # Fail before spending anything: a draft with a placeholder footer could never be approved.
@@ -66,7 +72,9 @@ class Pipeline:
                     continue
                 self._guard(summary, lead, stage)
         self.run_followups(limit, summary=summary, release=False)
-        summary.delivered += self.approvals.release_queue()  # shows cards up to your open-card limit; the rest wait
+        shown = self.approvals.release_queue()  # shows cards up to your open-card limit; the rest wait
+        summary.delivered += shown
+        self._say(f"{shown} card(s) sent to Telegram" + ("" if shown else " (none ready, or your card slots are full)"))
         return summary
 
     def run_followups(
@@ -134,6 +142,7 @@ class Pipeline:
             stage(lead, summary)
         except Exception as e:
             summary.failed.append(f"{lead.company_name}: {type(e).__name__}: {e}")
+            self._say(f"   failed ({type(e).__name__}); it will be tried again next run")
             self.repo.log_event(
                 "pipeline_error", contact_id=lead.contact_id,
                 payload={"stage": stage.__name__, "error": f"{type(e).__name__}: {e}"},
@@ -142,11 +151,20 @@ class Pipeline:
     def _research(self, lead: Lead, summary: RunSummary) -> None:
         if not self.repo.company_exists(lead.domain):  # rejected earlier in this run via another contact
             return
+        self._say(f"Researching {lead.company_name} ({lead.domain})...")
         report = research_lead(lead, fetcher=self.fetcher, llm=self.llm, icp=self.icp, repo=self.repo)
         self.repo.save_research(lead.company_id, report)
         if report.industry:
             self.repo.set_company_industry(lead.company_id, report.industry)
-        if report.disqualify_reason:
+        if report.disqualify_reason and report.disqualify_reason.startswith("fetch_failed"):
+            # We could not read their website (it blocks bots, or was down). That says nothing about fit, so we
+            # never reject on it: park the lead for a phone call or LinkedIn, and keep it.
+            errors = [e.strip() for e in report.disqualify_reason.removeprefix("fetch_failed:").split(";") if e.strip()]
+            self.repo.set_lead_status(lead.contact_id, "nurture")
+            self.repo.log_event("website_unreadable", contact_id=lead.contact_id, payload={"errors": errors})
+            summary.unreadable += 1
+            self._say("   website could not be read (it blocks automatic visits or was down): parked for a call or LinkedIn")
+        elif report.disqualify_reason:
             # Not a fit: delete everything about them, remember only the website so no import adds it again.
             reason = report.disqualify_reason.split(":")[0].strip()
             purged = self.repo.reject_company(lead.company_id, reason, self.icp.version)
@@ -155,15 +173,18 @@ class Pipeline:
             self.repo.log_event("disqualified", contact_id=lead.contact_id,
                                 payload={"reason": reason, "domain": lead.domain, "purged": purged})
             summary.disqualified += 1
+            self._say(f"   rejected ({reason}): removed, only the website is remembered")
         elif lead.email is None and not self._adopt_email(lead, report.public_emails):
             # Sourced companies arrive without an email. No usable public address: a human can still
             # call or use LinkedIn (phone is on the lead), but we never guess an address.
             self.repo.set_lead_status(lead.contact_id, "nurture")
             self.repo.log_event("no_usable_email", contact_id=lead.contact_id, payload={"found": report.public_emails})
             summary.no_email += 1
+            self._say("   a fit, but no public email: parked for a call or LinkedIn")
         else:
             self.repo.set_lead_status(lead.contact_id, "researched")
             summary.researched += 1
+            self._say("   a fit: ready to draft")
 
     def _adopt_email(self, lead: Lead, found: list[str]) -> str | None:
         """Use the best public business address from their own site that can receive mail."""
@@ -180,6 +201,7 @@ class Pipeline:
             self.repo.set_lead_status(lead.contact_id, "in_sequence")
             return
         report = self.repo.latest_research(lead.company_id)
+        self._say(f"Writing the email for {lead.company_name}...")
         result = generate(lead, report, self.icp, self.llm, self.footer)
         self.repo.save_message(NewMessage(
             contact_id=lead.contact_id, subject=result.draft.subject, body=result.text,
@@ -187,6 +209,7 @@ class Pipeline:
         ))
         self.repo.set_lead_status(lead.contact_id, "drafted")
         summary.drafted += 1
+        self._say("   drafted" + ("" if result.check.passed else ": did NOT pass every check, read the card's warning"))
 
     def _deliver(self, lead: Lead, summary: RunSummary) -> None:
         msg = self.repo.latest_message(lead.contact_id)
