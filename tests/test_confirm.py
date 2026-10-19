@@ -109,6 +109,13 @@ class W:
         return self.worker.explain(m, lead, now)
 
 
+def test_it_works_without_a_given_time_as_the_bot_calls_it():
+    w = W()
+    m, lead = w.approved()
+    text = w.worker.explain(m, lead)  # the bot never passes a time; this used to crash and fall back to vague text
+    assert text and "goes out when the sender is running" not in text
+
+
 def test_inside_the_window_it_says_within_a_minute():
     assert "within about a minute" in W().say()
 

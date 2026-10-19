@@ -124,7 +124,7 @@ def test_the_slash_menu_lists_every_command_the_bot_handles():
     method, body = seen[0]
     names = [c["command"] for c in body["commands"]]
     assert method == "setMyCommands" and names == [c for c, _ in COMMANDS]
-    assert all(re.fullmatch(r"[a-z0-9_]{1,32}", n) and 3 <= len(c["description"]) <= 256 for n, c in zip(names, body["commands"]))
+    assert all(re.fullmatch(r"[a-z0-9_]{1,32}", n) and 3 <= len(c["description"]) <= 256 for n, c in zip(names, body["commands"], strict=True))
     # every command in the menu must be one the bot actually handles
     src = open("src/zypher_agent/approval.py", encoding="utf-8").read()
     assert all(f'"/{n}"' in src for n in names)

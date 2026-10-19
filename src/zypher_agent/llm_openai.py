@@ -81,7 +81,7 @@ class OpenAICompatLLM:
         errors: list[str] = []
         for model in self.models:
             prompt = user
-            for attempt in range(2):
+            for _attempt in range(2):
                 result, error, retry_feedback = self._attempt(
                     model, task, system, prompt, output, schema, contact_id
                 )

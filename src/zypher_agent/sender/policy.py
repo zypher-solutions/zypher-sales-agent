@@ -16,7 +16,6 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-UTC = UTC
 STOPPED = frozenset({"replied", "unsubscribed", "bounced", "disqualified"})  # lead statuses that end a sequence
 HARD_CEILING = 20  # absolute maximum per day while sending from the company's main domain
 

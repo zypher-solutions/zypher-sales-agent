@@ -98,3 +98,8 @@ Format: what we decided, why, and the trade-off. Newest first.
 - **Decision:** `tenant_id` on every table. A repository is bound to one tenant at construction and scopes every query. Other tenants' ids behave as nonexistent. Suppression and domain uniqueness are per tenant.
 - **Why:** hard to forget (no per-call argument), and no auth or row-level security is needed yet.
 - **Trade-off:** a global list for hard bounces and spam complaints (useful for deliverability) is deferred to the sender module in Phase 2. A bug in the repository layer would leak across tenants, so isolation has contract tests that run against both implementations.
+
+## 2026-10-19: Lint rules are pinned in pyproject.toml
+- **Decision:** ruff uses an explicit rule list (`E4 E7 E9 F B PLW0127`, Python 3.11 target) instead of ruff's defaults.
+- **Why:** ruff is not version-pinned. An upgrade to 0.17 turned on dozens of style rules overnight and buried two real bugs in the noise: an undefined name that silently broke the "when will it send" message, and an f-string that only parses on Python 3.12+.
+- **Trade-off:** fewer style checks; the kept rules are the ones that find bugs.

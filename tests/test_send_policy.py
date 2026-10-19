@@ -15,7 +15,6 @@ from zypher_agent.sender.policy import (
     normalize_country,
 )
 
-UTC = UTC
 DUBAI, DOHA, KOLKATA, NYC = (ZoneInfo(z) for z in ("Asia/Dubai", "Asia/Qatar", "Asia/Kolkata", "America/New_York"))
 
 

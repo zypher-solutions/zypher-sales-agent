@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel
 
-from zypher_agent.approval import ConsoleNotifier
 from zypher_agent.config import Settings
 from zypher_agent.db import InMemoryRepo
 from zypher_agent.llm import LLMError, MockLLM
@@ -133,7 +132,7 @@ class Classify(BaseModel):
 
 
 def world(responses=None):
-    repo, notifier = InMemoryRepo(), ConsoleNotifier(echo=False)
+    repo = InMemoryRepo()
     llm = MockLLM(repo, responses if responses is not None else {"classify_reply": ReplyClassOut(reply_class="interested")})
     alerts: list[str] = []
     cid = repo.upsert_lead(CompanyIn(name="Acme", domain="acme.ae", country="UAE"), ContactIn(full_name="Ann", email="owner@acme.ae"))

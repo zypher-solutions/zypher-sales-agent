@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from zypher_agent.dry_run import DRY_FOOTER, build, press, run_dry_run, type_text
 from zypher_agent.llm import LLMError
@@ -128,7 +129,7 @@ def test_approving_after_a_rejection_or_unknown_company_is_safe():
 
 
 def test_footer_type_is_enforced():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         Footer(opt_out_line="x")
 
 

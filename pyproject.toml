@@ -32,3 +32,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"  # catches syntax that only works on newer Python
+line-length = 120
+
+[tool.ruff.lint]
+# Explicit list so a ruff upgrade cannot silently change what "lint clean" means.
+select = ["E4", "E7", "E9", "F", "B", "PLW0127"]
+ignore = ["E731", "E741", "E702"]  # house style: short lambdas, `l` for lead, compact tests

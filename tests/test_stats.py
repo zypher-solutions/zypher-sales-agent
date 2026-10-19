@@ -39,7 +39,7 @@ def test_an_empty_database_reports_zeros_and_no_division_errors():
 
 def test_counts_first_emails_follow_ups_and_companies_separately():
     repo = InMemoryRepo()
-    a, b = emailed(repo, 1), emailed(repo, 2)
+    a, _ = emailed(repo, 1), emailed(repo, 2)
     m = repo.save_message(NewMessage(contact_id=a, subject="s", body="b", step=2))
     repo.update_message(m.id, status="sent", sent_at=NOW - timedelta(hours=2))
     _, p = build_report(repo, NOW)

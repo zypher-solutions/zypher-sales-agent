@@ -117,7 +117,7 @@ class SendWorker:
 
     def explain(self, msg: Message, lead: Lead, now: datetime | None = None) -> str:
         """When will this approved email leave? Uses the same rules as sending, counting approved emails ahead of it."""
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         if not self.settings.sending_enabled:
             return "Sending is switched OFF (SENDING_ENABLED in .env), so nothing leaves until you turn it on."
         held = self.held_reason(lead.email)

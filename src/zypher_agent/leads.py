@@ -100,7 +100,7 @@ def parse_csv(path: Path) -> ParsedCsv:
                 out.skipped.append((line, "duplicate email in file"))
             else:
                 seen.add(email)
-                clean = lambda k: (r.get(k) or "").strip() or None
+                clean = lambda k, r=r: (r.get(k) or "").strip() or None
                 out.rows.append((
                     CompanyIn(
                         name=clean("CompanyName") or domain, domain=domain, website=clean("Website"),

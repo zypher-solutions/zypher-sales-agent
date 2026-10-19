@@ -112,7 +112,7 @@ class Pipeline:
             return 0
         sent = [(m.step, m.subject, m.body) for m in self.repo.sent_messages(lead.contact_id)]
         result = generate(lead, report, self.icp, self.llm, self.footer, step=spec.step, sent=sent)
-        msg = self.repo.save_message(NewMessage(
+        self.repo.save_message(NewMessage(
             contact_id=lead.contact_id, subject=result.draft.subject, body=result.text,
             evidence=evidence_for(result, report), step=spec.step,
         ))

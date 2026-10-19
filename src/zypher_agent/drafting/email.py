@@ -96,6 +96,7 @@ def render_email_html(draft: EmailDraft, contact_name: str | None, footer: Foote
         else:
             shown = e(value)
         parts.append(f"<b>{label}</b>: {shown}")
+    sep = ' <span style="color:#9ca3af">|</span> '  # kept out of the f-string: Python 3.11 forbids backslashes there
     disclaimer = (
         f'<div style="font-size:11px;color:#1d77c8;margin-top:10px">{e(footer.sender_disclaimer)}</div>'
         if footer.sender_disclaimer else ""
@@ -106,7 +107,7 @@ def render_email_html(draft: EmailDraft, contact_name: str | None, footer: Foote
         f'<div><span style="font-size:18px;font-weight:bold;color:#1f2a37">{e(footer.sender_name)}</span>'
         f'<span style="color:#9ca3af"> | </span><span style="font-size:15px">{e(footer.sender_title)}</span></div>'
         f'<div style="margin:6px 0;font-style:italic;color:#0f766e;font-size:15px">{e(footer.company_name)}</div>'
-        f'<div>{" <span style=\"color:#9ca3af\">|</span> ".join(parts)}</div>'
+        f"<div>{sep.join(parts)}</div>"
         '<div style="border-top:1px solid #e5e7eb;margin:16px 0 8px 0"></div>'
         f'<div style="font-size:12px;color:#6b7280">{e(footer.opt_out_line)}<br>{e(footer.postal_address)}</div>'
         f"{disclaimer}</div>"
@@ -256,7 +257,7 @@ def generate(
     hypotheses: list[Hypothesis] = report.hypotheses
     violations: list[Violation] = []
     draft = previous
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    for attempt in range(1, MAX_ATTEMPTS + 1):  # noqa: B007 - read after the loop
         draft = llm.call(
             task=("draft" if step == 1 else "followup") if previous is None and feedback is None else "redraft",
             system=system_prompt(icp, step),
