@@ -62,4 +62,6 @@ The owner is new to code and uses Claude as guide. For every non-trivial task:
 Tests pass, lint clean, no secrets or lead data in the diff, no Zypher-specific text in code or prompts, migrations mirrored in `schema.sql`, docs updated.
 
 ## Current phase
+**New session? Read docs/next-steps.md first** (state, open decisions, what to build next).
+
 Phase 1 complete. Phase 2 in progress (plan: docs/phase2-plan.md): send policy, transport, preflight and worker are built and tested with a fake mail server; real sending is OFF until the owner adds MAIL_PASSWORD, preflight passes and SENDING_ENABLED=true. Inbox handling (bounces, replies, opt-outs, stop-loss) and follow-up scheduling are built. Statistics (`stats`, `/stats`, low reply-rate alert) are built. Research rejects companies without a verified quote proving an office team or business-to-business side. Remaining: staged live rollout (allowlist test, then 5 real leads a day), then Phase 3 (reply drafting, CRM and Slack handoff). Roadmap in README.md.
