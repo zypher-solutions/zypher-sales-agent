@@ -140,13 +140,20 @@ class Pipeline:
             )
 
     def _research(self, lead: Lead, summary: RunSummary) -> None:
+        if not self.repo.company_exists(lead.domain):  # rejected earlier in this run via another contact
+            return
         report = research_lead(lead, fetcher=self.fetcher, llm=self.llm, icp=self.icp, repo=self.repo)
         self.repo.save_research(lead.company_id, report)
         if report.industry:
             self.repo.set_company_industry(lead.company_id, report.industry)
         if report.disqualify_reason:
-            self.repo.set_lead_status(lead.contact_id, "disqualified")
-            self.repo.log_event("disqualified", contact_id=lead.contact_id, payload={"reason": report.disqualify_reason})
+            # Not a fit: delete everything about them, remember only the website so no import adds it again.
+            reason = report.disqualify_reason.split(":")[0].strip()
+            purged = self.repo.reject_company(lead.company_id, reason, self.icp.version)
+            if not purged:  # we emailed them before: keep that history, just stop here
+                self.repo.set_lead_status(lead.contact_id, "disqualified")
+            self.repo.log_event("disqualified", contact_id=lead.contact_id,
+                                payload={"reason": reason, "domain": lead.domain, "purged": purged})
             summary.disqualified += 1
         elif lead.email is None and not self._adopt_email(lead, report.public_emails):
             # Sourced companies arrive without an email. No usable public address: a human can still

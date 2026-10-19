@@ -29,6 +29,7 @@ def repo(request):
     yield r
     r.conn.execute("delete from companies where source = 'test'")  # cascades to contacts, messages
     r.conn.execute("delete from suppression_list where reason = 'test'")
+    r.conn.execute("delete from rejected_domains where domain like '%%.test.com'")
 
 
 TENANT_B = "00000000-0000-0000-0000-0000000000b2"
@@ -52,6 +53,7 @@ def two_tenants(request):
     yield a, b
     a.conn.execute("delete from companies where source = 'test'")
     a.conn.execute("delete from suppression_list where reason = 'test'")
+    a.conn.execute("delete from rejected_domains where domain like '%%.test.com'")
     a.conn.execute("delete from events where tenant_id = %s", (TENANT_B,))
     a.conn.execute("delete from tenants where id = %s", (TENANT_B,))
 
@@ -389,3 +391,42 @@ def test_research_keeps_the_proof_of_a_proper_company(repo):
     proof = [{"kind": "office_team", "quote": "Our sales and accounts teams work from our head office", "source_url": "https://a.com/about"}]
     repo.save_research(company_id, ResearchReport(services=["s"], qualification=proof, model="m"))
     assert repo.latest_research(company_id).qualification == proof
+
+
+# ---------- rejected companies: purged, only the website remembered ----------
+
+def test_rejecting_a_company_deletes_it_and_remembers_only_the_domain(repo):
+    cid, domain = new_lead(repo)
+    lead = repo.get_lead(cid)
+    repo.save_research(lead.company_id, ResearchReport(summary="s", disqualify_reason="no_proof_of_proper_company"))
+    repo.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    assert repo.reject_company(lead.company_id, "no_proof_of_proper_company", icp_version=7) is True
+    assert not repo.company_exists(domain) and repo.latest_research(lead.company_id) is None
+    with pytest.raises(KeyError):
+        repo.get_lead(cid)
+    assert repo.is_rejected(domain) and repo.is_rejected(domain.upper())  # case does not matter
+    assert repo.rejected_count() >= 1
+
+
+def test_rejecting_twice_is_harmless(repo):
+    cid, domain = new_lead(repo)
+    repo.reject_company(repo.get_lead(cid).company_id, "first", icp_version=7)
+    cid2, _ = new_lead(repo, domain=domain)  # found again somehow (should not happen: imports skip it)
+    assert repo.reject_company(repo.get_lead(cid2).company_id, "second", icp_version=7) is True
+    assert repo.is_rejected(domain) and not repo.company_exists(domain)
+
+
+def test_a_company_we_already_emailed_is_never_purged(repo):
+    from datetime import UTC, datetime
+    cid, domain = new_lead(repo)
+    m = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    repo.update_message(m.id, status="sent", sent_at=datetime.now(UTC))
+    assert repo.reject_company(repo.get_lead(cid).company_id, "late", icp_version=7) is False
+    assert repo.company_exists(domain) and not repo.is_rejected(domain)  # history kept for replies and opt-outs
+
+
+def test_rejected_domains_are_per_tenant(two_tenants):
+    a, b = two_tenants
+    cid, domain = new_lead(a)
+    a.reject_company(a.get_lead(cid).company_id, "no_proof_of_proper_company", icp_version=7)
+    assert a.is_rejected(domain) and not b.is_rejected(domain)

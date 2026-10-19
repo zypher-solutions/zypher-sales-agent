@@ -113,10 +113,10 @@ def parse_csv(path: Path) -> ParsedCsv:
 
 
 def import_rows(repo: Repository, rows: list[tuple[CompanyIn, ContactIn]]) -> tuple[int, int]:
-    """Write rows, skipping anyone on the suppression list. Returns (imported, suppressed)."""
+    """Write rows, skipping anyone on the suppression list or rejected before. Returns (imported, skipped)."""
     imported = suppressed = 0
     for company, contact in rows:
-        if repo.is_suppressed(contact.email, company.domain):
+        if repo.is_suppressed(contact.email, company.domain) or repo.is_rejected(company.domain):
             suppressed += 1
             continue
         repo.upsert_lead(company, contact)

@@ -176,3 +176,11 @@ def test_email_without_a_mail_server_or_suppressed_is_not_used():
     run.repo.add_suppression("manual", email="boss@gmail.com")
     run.pipeline.run(10)
     assert contact_of(run)["status"] == "nurture"
+
+
+def test_import_skips_companies_we_rejected_before_without_spending_anything():
+    repo = InMemoryRepo()
+    cid = repo.upsert_lead(CompanyIn(name="Shop", domain="shop.ae"), ContactIn())
+    repo.reject_company(repo.get_lead(cid).company_id, "no_proof_of_proper_company", icp_version=7)
+    r = import_sourced(repo, [sourced("Shop", "SHOP.ae"), sourced("New", "new.ae")])
+    assert r.rejected_before == ["Shop"] and r.imported == ["New"] and not repo.company_exists("shop.ae")

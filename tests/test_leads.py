@@ -46,3 +46,15 @@ def test_import_honours_suppression_and_is_repeatable(tmp_path):
     assert import_rows(repo, parsed.rows) == (1, 2)
     assert import_rows(repo, parsed.rows) == (1, 2)
     assert len(repo.leads_with_status("new", 100)) == 1
+
+
+def test_csv_import_skips_companies_we_rejected_before(tmp_path):
+    parsed = parse_csv(write(tmp_path, (
+        "1,A,a.com,Ann,ann@a.com,,,\n"
+        "2,B,b.com,Bo,bo@b.com,,,\n"
+    )))
+    repo = InMemoryRepo()
+    first = repo.upsert_lead(*parsed.rows[0])
+    repo.reject_company(repo.get_lead(first).company_id, "too_small_or_informal", icp_version=7)
+    assert import_rows(repo, parsed.rows) == (1, 1)  # (imported, skipped)
+    assert not repo.company_exists("a.com")

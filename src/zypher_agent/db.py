@@ -38,6 +38,9 @@ MESSAGE_FIELDS = {
 class Repository(Protocol):
     def upsert_lead(self, company: CompanyIn, contact: ContactIn) -> str: ...
     def company_exists(self, domain: str) -> bool: ...
+    def reject_company(self, company_id: str, reason: str, icp_version: int | None = None) -> bool: ...
+    def is_rejected(self, domain: str) -> bool: ...
+    def rejected_count(self) -> int: ...
     def set_contact_email(self, contact_id: str, email: str) -> None: ...
     def is_suppressed(self, email: str | None, domain: str | None) -> bool: ...
     def add_suppression(self, reason: str, email: str | None = None, domain: str | None = None) -> None: ...
@@ -145,6 +148,38 @@ class PostgresRepo:
             "select 1 from companies where tenant_id = %s and domain = %s", (self.tenant_id, domain)
         ).fetchone()
         return row is not None
+
+    def reject_company(self, company_id: str, reason: str, icp_version: int | None = None) -> bool:
+        """Forget a company research rejected: delete it (contacts, research and drafts cascade) and keep only its
+        domain, so imports skip it and we never pay to research it again. A company we have already emailed is
+        never purged (its history is needed for replies and opt-outs). Returns True when purged."""
+        with self.conn.transaction():
+            co = self._exec(
+                """select co.domain,
+                          exists (select 1 from contacts c join messages m on m.contact_id = c.id
+                                  where c.company_id = co.id and m.sent_at is not null) as emailed
+                   from companies co where co.id = %s and co.tenant_id = %s""",
+                (company_id, self.tenant_id),
+            ).fetchone()
+            if co is None or co["emailed"]:
+                return False
+            self._exec(
+                """insert into rejected_domains (tenant_id, domain, reason, icp_version) values (%s, %s, %s, %s)
+                   on conflict do nothing""",
+                (self.tenant_id, co["domain"], reason, icp_version),
+            )
+            self._exec("delete from companies where id = %s and tenant_id = %s", (company_id, self.tenant_id))
+        return True
+
+    def is_rejected(self, domain: str) -> bool:
+        row = self._exec(
+            "select 1 from rejected_domains where tenant_id = %s and lower(domain) = lower(%s)", (self.tenant_id, domain)
+        ).fetchone()
+        return row is not None
+
+    def rejected_count(self) -> int:
+        row = self._exec("select count(*) as n from rejected_domains where tenant_id = %s", (self.tenant_id,)).fetchone()
+        return int(row["n"])
 
     def set_contact_email(self, contact_id: str, email: str) -> None:
         self._exec(
@@ -491,6 +526,7 @@ class _Store:
         self.messages: dict[str, Message] = {}
         self.message_tenant: dict[str, str] = {}
         self.suppressed: list[dict] = []
+        self.rejected: list[dict] = []  # {tenant_id, domain, reason, icp_version}
         self.events: list[dict] = []
         self.paused: dict[str, tuple[bool, str | None]] = {}  # tenant_id -> (paused, reason)
 
@@ -504,7 +540,7 @@ class InMemoryRepo:
         s = self._store
         # Raw, all-tenant views (rows carry tenant_id); handy for test assertions.
         self.companies, self.contacts, self.messages = s.companies, s.contacts, s.messages
-        self.suppressed, self.events = s.suppressed, s.events
+        self.suppressed, self.events, self.rejected = s.suppressed, s.events, s.rejected
 
     def for_tenant(self, tenant_id: str) -> "InMemoryRepo":
         """Another tenant's view of the same in-memory database (used to test isolation)."""
@@ -578,6 +614,33 @@ class InMemoryRepo:
 
     def company_exists(self, domain: str) -> bool:
         return any(c["tenant_id"] == self.tenant_id and c["domain"] == domain for c in self.companies.values())
+
+    def reject_company(self, company_id: str, reason: str, icp_version: int | None = None) -> bool:
+        co = self.companies.get(company_id)
+        if co is None or co["tenant_id"] != self.tenant_id:
+            return False
+        contact_ids = {c["id"] for c in self.contacts.values() if c["company_id"] == company_id}
+        msgs = [m for m in self.messages.values() if m.contact_id in contact_ids]
+        if any(m.sent_at is not None for m in msgs):
+            return False
+        if not self.is_rejected(co["domain"]):
+            self.rejected.append({"tenant_id": self.tenant_id, "domain": co["domain"], "reason": reason,
+                                  "icp_version": icp_version})
+        for m in msgs:  # like ON DELETE CASCADE: company -> contacts -> messages, company -> research
+            del self.messages[m.id]
+            self._store.message_tenant.pop(m.id, None)
+        for cid in contact_ids:
+            del self.contacts[cid]
+        self._store.research.pop(company_id, None)
+        del self.companies[company_id]
+        return True
+
+    def is_rejected(self, domain: str) -> bool:
+        d = (domain or "").lower()
+        return any(r["tenant_id"] == self.tenant_id and r["domain"].lower() == d for r in self.rejected)
+
+    def rejected_count(self) -> int:
+        return sum(r["tenant_id"] == self.tenant_id for r in self.rejected)
 
     def set_contact_email(self, contact_id: str, email: str) -> None:
         c = self.contacts.get(contact_id)

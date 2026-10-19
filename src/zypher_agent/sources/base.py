@@ -36,10 +36,11 @@ class ImportResult:
     imported: list[str] = field(default_factory=list)          # company names
     already_known: list[str] = field(default_factory=list)     # domain already in the database
     suppressed: list[str] = field(default_factory=list)        # domain on the do-not-contact list
+    rejected_before: list[str] = field(default_factory=list)   # research already found them not a fit
 
 
 def import_sourced(repo: Repository, companies: list[SourcedCompany]) -> ImportResult:
-    """Add new companies as leads with no email yet. Known and suppressed domains are skipped.
+    """Add new companies as leads with no email yet. Known, suppressed and rejected domains are skipped.
 
     Re-running a search is therefore safe: nothing is duplicated and nothing re-enters the pipeline.
     """
@@ -47,6 +48,9 @@ def import_sourced(repo: Repository, companies: list[SourcedCompany]) -> ImportR
     for c in companies:
         if repo.is_suppressed(None, c.domain):
             result.suppressed.append(c.name)
+            continue
+        if repo.is_rejected(c.domain):
+            result.rejected_before.append(c.name)
             continue
         if repo.company_exists(c.domain):
             result.already_known.append(c.name)

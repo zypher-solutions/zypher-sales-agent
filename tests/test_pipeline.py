@@ -21,8 +21,8 @@ def test_dry_run_end_to_end():
     assert summary.failed == []
     assert status_by_company(run) == {
         "Acme Freight Co": "approved", "Sunrise Family Clinic": "researched",  # draft rejected by the human: redrafted next run
-        "DevCraft Studio": "disqualified", "Ghost Trading LLC": "disqualified",
-    }
+    }  # the two rejected companies are gone from the database; only their websites are remembered
+    assert run.repo.is_rejected("devcraft-demo.com") and run.repo.is_rejected("ghost-trading-demo.com")
     acme = run.repo.latest_message(next(i for i, c in run.repo.contacts.items() if "acme" in c["email"]))
     assert (acme.status, acme.version, acme.feedback) == ("approved", 2, "make it shorter")
 
@@ -46,9 +46,8 @@ def test_guardrail_retry_fixed_the_clinic_draft_before_you_saw_it():
 
 def test_injection_attempt_cannot_reach_a_draft():
     run, _ = run_dry_run(echo=False)
-    ghost_id = next(i for i, c in run.repo.contacts.items() if "ghost" in c["email"])
-    assert run.repo.latest_message(ghost_id) is None  # never drafted
-    assert run.repo.contacts[ghost_id]["status"] == "disqualified"
+    assert run.repo.is_rejected("ghost-trading-demo.com") and not run.repo.company_exists("ghost-trading-demo.com")
+    assert not any("ghost" in (m.body or "").lower() for m in run.repo.messages.values())  # never drafted
     assert any(e["type"] == "possible_prompt_injection" for e in run.repo.events)
     assert not any("ghost-trading" in c["user"] for c in run.llm.calls)  # the model never saw that page
     assert "500 happy clients" not in " ".join(c["text"] for c in run.notifier.sent)
@@ -147,3 +146,19 @@ def test_dry_run_sends_only_the_approved_email_through_the_fake_server():
     run, _ = run_dry_run(echo=False)
     summary, transport = simulate_sending(run)
     assert summary.sent == 1 and [e.to for e in transport.sent] == ["rahul@acme-freight-demo.com"]  # not the rejected clinic
+
+
+def test_a_rejected_company_is_purged_and_never_researched_again():
+    from zypher_agent.sources.base import SourcedCompany, import_sourced
+    run = build(echo=False)
+    run.pipeline.run(10)
+    rejected = [e for e in run.repo.events if e["type"] == "disqualified"]
+    assert len(rejected) == 2 and all(e["payload"]["purged"] and e["payload"]["domain"] for e in rejected)
+    assert all(c["company_id"] in run.repo.companies for c in run.repo.contacts.values())  # nothing left dangling
+    calls = len(run.llm.calls)
+    r = import_sourced(run.repo, [SourcedCompany(
+        name="DevCraft Studio", domain="devcraft-demo.com", website="https://devcraft-demo.com", source="apify_maps")])
+    assert r.rejected_before == ["DevCraft Studio"] and r.imported == []
+    run.pipeline.run(10)
+    assert not run.repo.company_exists("devcraft-demo.com")
+    assert not any("devcraft" in c["user"].lower() for c in run.llm.calls[calls:])  # never sent to the model again

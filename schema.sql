@@ -149,6 +149,18 @@ create table suppression_list (
 create unique index suppression_tenant_email_key  on suppression_list (tenant_id, lower(email))  where email is not null;
 create unique index suppression_tenant_domain_key on suppression_list (tenant_id, lower(domain)) where domain is not null;
 
+-- Companies research rejected as not a fit: everything else about them is deleted, only the website is kept
+-- so imports skip it. See migrations/006_rejected_domains.sql.
+create table rejected_domains (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
+  domain text not null,
+  reason text not null,                  -- the rejection code, e.g. no_proof_of_proper_company
+  icp_version int,                       -- icp.yaml version that rejected it
+  created_at timestamptz default now()
+);
+create unique index rejected_tenant_domain_key on rejected_domains (tenant_id, lower(domain));
+
 create table events (
   id bigserial primary key,
   tenant_id uuid not null default '00000000-0000-0000-0000-000000000001' references tenants(id),
@@ -172,3 +184,4 @@ alter table sequences        enable row level security;
 alter table messages         enable row level security;
 alter table suppression_list enable row level security;
 alter table events           enable row level security;
+alter table rejected_domains enable row level security;

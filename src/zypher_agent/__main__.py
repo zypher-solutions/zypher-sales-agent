@@ -73,7 +73,7 @@ def _source(settings: Settings, args) -> int:
             r = import_sourced(repo, found)
             print(
                 f"  -> imported {len(r.imported)}, already known {len(r.already_known)}, "
-                f"on do-not-contact list {len(r.suppressed)}"
+                f"on do-not-contact list {len(r.suppressed)}, rejected before {len(r.rejected_before)}"
             )
     if repo is not None:
         print("\nNext: `python -m zypher_agent run --limit 5` researches them, finds a public email, drafts, "
@@ -84,8 +84,10 @@ def _source(settings: Settings, args) -> int:
 MEANING = {
     "new": "found, not researched yet", "researched": "ready to draft", "drafted": "drafted, card not sent",
     "awaiting_approval": "WAITING FOR YOU in Telegram", "approved": "approved by you (nothing sent yet)",
-    "nurture": "no public email: call or LinkedIn by hand", "disqualified": "not a fit",
+    "nurture": "no public email: call or LinkedIn by hand",
     "unsubscribed": "opted out", "needs_changes": "waiting for your feedback text",
+    "in_sequence": "emailed: follow-ups are drafted on schedule", "replied": "replied: your turn",
+    "bounced": "address bounced: not emailed again", "disqualified": "not a fit (emailed before, so history kept)",
 }
 
 
@@ -101,8 +103,11 @@ def _status(settings: Settings) -> int:
     print("Leads by stage:")
     for r in rows:
         print(f"  {r['n']:>4}  {r['status']:<18} {MEANING.get(r['status'], '')}")
-    if not rows:
+    if not rows and not repo.rejected_count():
         print("  none yet. Start with: zypher find \"freight forwarding company\" \"Dubai, United Arab Emirates\" 20")
+    rejected = repo.rejected_count()
+    if rejected:
+        print(f"  {rejected:>4}  {'rejected':<18} not a fit: removed, only the website is kept so they are never found again")
     sup = repo.conn.execute("select count(*) as n from suppression_list where tenant_id = %s", (settings.tenant_id,)).fetchone()
     cost = repo.conn.execute(
         "select count(*) as n, coalesce(sum((payload->>'cost_usd')::float), 0) as usd from events "
@@ -362,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
         print("\nFinal lead statuses:")
         for cid, status in statuses.items():
             print(f"  {dry.repo.get_lead(cid).company_name:<24} {status}")
+        for r in dry.repo.rejected:
+            print(f"  {r['domain']:<24} rejected ({r['reason']}): removed, only the website remembered")
         cost = sum(e["payload"]["cost_usd"] or 0 for e in dry.repo.events if e["type"] == "llm_call")
         print(f"\nLLM calls: {sum(e['type'] == 'llm_call' for e in dry.repo.events)} (mocked, cost ${cost:.2f}). Emails sent: 0 so far.")
         from zypher_agent.dry_run import simulate_sending
