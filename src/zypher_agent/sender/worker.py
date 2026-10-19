@@ -150,7 +150,20 @@ class SendWorker:
         name = normalize_country(lead.country)
         return str(COUNTRIES[name][0]) if name else "UTC"
 
-    def _styled_copy(self, msg: Message, lead: Lead) -> str | None:
+    def _logo(self, msg: Message, lead: Lead) -> bytes | None:
+        """The sender's logo file, or None. A missing file is logged once per email and never stops the send."""
+        path = self.footer.logo_path
+        if not path:
+            return None
+        try:
+            with open(path, "rb") as f:
+                return f.read()
+        except OSError as e:
+            self.repo.log_event("logo_missing", contact_id=lead.contact_id, message_id=msg.id, actor="sender",
+                                payload={"path": path, "error": type(e).__name__})
+            return None
+
+    def _styled_copy(self, msg: Message, lead: Lead, logo_cid: str | None = None) -> str | None:
         """A styled version of the approved email, but only if it says EXACTLY what was approved.
 
         If the signature settings changed since approval, the plain text differs, so we send the approved
@@ -160,7 +173,7 @@ class SendWorker:
             draft = EmailDraft(**msg.evidence["draft"])
             if render_email(draft, lead.contact_name, self.footer) != msg.body:
                 return None
-            return render_email_html(draft, lead.contact_name, self.footer)
+            return render_email_html(draft, lead.contact_name, self.footer, logo_cid)
         except Exception:  # noqa: BLE001 - styling is optional; the plain email always goes
             return None
 
@@ -182,9 +195,13 @@ class SendWorker:
             first = self.repo.first_message_header(lead.contact_id)
             in_reply_to = first[0] if first else None
             subject = first[1] if first and first[1].lower().startswith("re:") else f"Re: {first[1] if first else msg.subject}"
+        logo = self._logo(msg, lead)
+        logo_cid = f"logo.{header.strip('<>')}" if logo else None  # unique per email, on our own domain
+        html = self._styled_copy(msg, lead, logo_cid)
         out = OutgoingEmail(
             to=lead.email, subject=subject, body=msg.body, message_id=header, from_addr=from_addr,
-            from_name=self.footer.sender_name, in_reply_to=in_reply_to, html=self._styled_copy(msg, lead),
+            from_name=self.footer.sender_name, in_reply_to=in_reply_to, html=html,
+            inline_images=((logo_cid, logo),) if html and logo and logo_cid else (),
         )
         try:
             self.transport.send(out)

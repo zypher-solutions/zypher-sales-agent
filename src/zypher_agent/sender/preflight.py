@@ -113,7 +113,23 @@ def check_settings(settings: Settings, footer_problems: list[str]) -> list[Check
         out.append(Check("Timezone", FAIL, f"unknown timezone {settings.sender_timezone!r}"))
     out.append(Check("Daily cap", OK, f"{settings.daily_send_cap} a day (your cap; the warmup ramp still applies)"
                      if settings.daily_send_cap is not None else "warmup ramp: 5 a day, rising to 15"))
+    if settings.sender_logo_path:
+        out.append(check_logo(settings.sender_logo_path))
     return out
+
+
+def check_logo(path: str) -> Check:
+    """A missing or heavy logo never blocks sending (the email goes without it), so it only warns."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return Check("Logo", WARN, f"{path} not found: emails go out without the logo")
+    if not data.startswith(b"\x89PNG"):
+        return Check("Logo", WARN, f"{path} is not a PNG: use a PNG so every mail app shows it")
+    if len(data) > 50_000:
+        return Check("Logo", WARN, f"{path} is {len(data) // 1000} KB: keep it under 50 KB, heavy images look like spam")
+    return Check("Logo", OK, f"{path} ({len(data) // 1000 or 1} KB)")
 
 
 def run_preflight(settings: Settings, footer_problems: list[str]) -> list[Check]:

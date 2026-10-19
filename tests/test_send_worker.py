@@ -24,6 +24,7 @@ from zypher_agent.sender.transport import (
     PermanentSendError,
     SendConfigError,
     TransientSendError,
+    build_mime,
 )
 from zypher_agent.sender.worker import SendWorker, allowlisted
 
@@ -249,6 +250,32 @@ def test_the_email_carries_a_styled_copy_of_the_approved_text():
     out = w.transport.sent[0]
     assert out.body == msg.body and out.html and "Muhammed Hasheem" in out.html
     assert out.body == render_email(GOOD, "Ann Lee", FOOTER)
+
+
+def test_the_logo_file_is_embedded_in_the_styled_copy(tmp_path):
+    from email import message_from_bytes
+
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo")
+    w = World()
+    w.worker.footer = FOOTER.model_copy(update={"logo_path": str(logo)})
+    w.message(w.lead())  # drafted with FOOTER: the logo is not part of the approved words, so styling still applies
+    w.run()
+    out = w.transport.sent[0]
+    (cid, data), = out.inline_images
+    assert data == logo.read_bytes() and f'src="cid:{cid}"' in out.html and cid.endswith("@zypher-solutions.com")
+    raw = build_mime(out).as_bytes()
+    assert b"image/png" in message_from_bytes(raw).as_bytes()
+
+
+def test_a_missing_logo_file_never_stops_the_email(tmp_path):
+    w = World()
+    w.worker.footer = FOOTER.model_copy(update={"logo_path": str(tmp_path / "gone.png")})
+    w.message(w.lead())
+    assert w.run().sent == 1
+    out = w.transport.sent[0]
+    assert out.html and "<img" not in out.html and out.inline_images == ()
+    assert any(e["type"] == "logo_missing" for e in w.repo.events)
 
 
 def test_if_the_signature_changed_after_approval_only_the_approved_plain_text_goes():

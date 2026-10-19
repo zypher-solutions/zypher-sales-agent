@@ -40,7 +40,7 @@ def sequence(*drafts):
 def test_render_adds_greeting_and_footer():
     text = render_email(GOOD, "Ann Lee", FOOTER)
     assert text.startswith("Hi Ann,\n\n") and GOOD_BODY in text
-    assert text.endswith(FOOTER.postal_address) and FOOTER.opt_out_line in text
+    assert text.endswith(FOOTER.opt_out_line) and FOOTER.postal_address in text  # no notice set: opt-out is last
     assert FOOTER.sender_email in text and FOOTER.company_name in text
 
 
@@ -134,11 +134,42 @@ def _words(text: str) -> list[str]:
 def test_plain_signature_matches_the_company_layout():
     from zypher_agent.drafting.email import render_email
     text = render_email(GOOD, "Ann Lee", _footer())
-    tail = text.split("\n\nBest,\n")[1].split("\n")
+    tail = text.split("\n\nBest regards,\n")[1].split("\n")
     assert tail[0] == "Muhammed Hasheem | Chief Executive Officer"
     assert tail[1] == FOOTER.company_name
     assert tail[2] == f"Email: {FOOTER.sender_email} | Office: +91 80757 25045 | Website: www.zypher-solutions.com"
-    assert text.endswith("IMPORTANT: This email is confidential.") and FOOTER.opt_out_line in text and FOOTER.postal_address in text
+    assert tail[3] == FOOTER.postal_address  # the address sits with the contact details
+    assert tail[4] == ""  # then a gap, then the small print together: opt-out just above the notice
+    assert tail[5:] == [FOOTER.opt_out_line, "IMPORTANT: This email is confidential."]
+
+
+def test_the_sign_off_comes_from_settings():
+    from zypher_agent.drafting.email import render_email, render_email_html
+    f = _footer(sign_off="Warm regards,")
+    assert "\n\nWarm regards,\nMuhammed Hasheem" in render_email(GOOD, "Ann", f)
+    assert "Warm regards," in render_email_html(GOOD, "Ann", f)
+
+
+def test_styled_copy_puts_the_address_above_the_line_and_the_opt_out_below_it():
+    from zypher_agent.drafting.email import render_email_html
+    out = render_email_html(GOOD, "Ann", _footer())
+    line = out.index("border-top")
+    assert out.index(FOOTER.postal_address) < line < out.index(FOOTER.opt_out_line) < out.index("IMPORTANT")
+
+
+def test_the_logo_appears_only_when_given_and_only_as_an_embedded_picture():
+    from bs4 import BeautifulSoup
+
+    from zypher_agent.drafting.email import render_email, render_email_html
+    f = _footer()
+    assert "<img" not in render_email_html(GOOD, "Ann", f)
+    soup = BeautifulSoup(render_email_html(GOOD, "Ann", f, logo_cid="logo.123@zypher-solutions.com"), "html.parser")
+    imgs = soup.find_all("img")
+    assert len(imgs) == 1 and imgs[0]["src"] == "cid:logo.123@zypher-solutions.com"  # embedded, never fetched from a server
+    assert imgs[0]["alt"] == FOOTER.company_name
+    assert _words(soup.get_text(" ")) == _words(render_email(GOOD, "Ann", f))  # still exactly the approved words
+    line = str(soup).index("border-top")
+    assert str(soup).index(FOOTER.postal_address) < str(soup).index("<img") < line
 
 
 def test_signature_without_optional_parts_has_no_gaps_or_empty_labels():
@@ -156,7 +187,7 @@ def test_styled_copy_says_exactly_what_the_plain_text_says():
     soup = BeautifulSoup(render_email_html(GOOD, "Ann Lee", f), "html.parser")
     assert _words(soup.get_text(" ")) == _words(plain)  # same words, same order: nothing added or hidden
     assert soup.find("a", href=f"mailto:{FOOTER.sender_email}") and soup.find("a", href="https://www.zypher-solutions.com")
-    assert not soup.find("img") and not soup.find("script")  # no images, no tracking pixel
+    assert not soup.find("img") and not soup.find("script")  # no logo asked for: no images, no tracking pixel
 
 
 def test_html_escapes_text_from_the_model():

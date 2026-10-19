@@ -157,8 +157,41 @@ def test_preflight_settings_checks():
     assert got["Email footer"].status == FAIL and got["Timezone"].status == FAIL and "3 a day" in got["Daily cap"].detail
 
 
+def test_preflight_checks_the_logo_only_when_one_is_set(tmp_path):
+    def logo_check(path):
+        s = Settings(_env_file=None, sender_logo_path=path)
+        return {c.name: c for c in check_settings(s, [])}.get("Logo")
+
+    assert logo_check("") is None
+    assert logo_check(str(tmp_path / "gone.png")).status == WARN
+    (tmp_path / "logo.jpg").write_bytes(b"\xff\xd8 jpeg")
+    assert "not a PNG" in logo_check(str(tmp_path / "logo.jpg")).detail
+    (tmp_path / "big.png").write_bytes(b"\x89PNG" + b"0" * 60_000)
+    assert "under 50 KB" in logo_check(str(tmp_path / "big.png")).detail
+    (tmp_path / "ok.png").write_bytes(b"\x89PNG" + b"0" * 6_000)
+    assert logo_check(str(tmp_path / "ok.png")).status == OK
+
+
 def test_a_styled_copy_makes_a_two_part_message_with_the_plain_text_first():
     m = build_mime(email(html="<p>Hi</p>"))
     assert m.get_content_type() == "multipart/alternative"
     kinds = [p.get_content_type() for p in m.iter_parts()]
     assert kinds == ["text/plain", "text/html"] and not any(k.startswith("image/") for k in kinds)
+
+
+def test_the_logo_is_embedded_next_to_the_styled_copy():
+    png = b"\x89PNG\r\n\x1a\nfake"
+    m = build_mime(email(html='<p>Hi</p><img src="cid:logo.1@zypher-solutions.com">',
+                         inline_images=(("logo.1@zypher-solutions.com", png),)))
+    plain, related = list(m.iter_parts())
+    assert plain.get_content_type() == "text/plain"  # plain text still first and unchanged
+    assert related.get_content_type() == "multipart/related"
+    html_part, image = list(related.iter_parts())
+    assert html_part.get_content_type() == "text/html" and image.get_content_type() == "image/png"
+    assert image["Content-ID"] == "<logo.1@zypher-solutions.com>" and image.get_content() == png
+    assert image.get_content_disposition() == "inline"  # shown in the signature, not listed as an attachment
+
+
+def test_pictures_are_never_added_to_a_plain_only_email():
+    m = build_mime(email(inline_images=(("logo.1@x", b"png"),)))
+    assert m.get_content_type() == "text/plain" and not m.is_multipart()

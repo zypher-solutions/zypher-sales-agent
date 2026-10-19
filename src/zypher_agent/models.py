@@ -129,6 +129,8 @@ class Footer(BaseModel):
     sender_phone: str = ""
     sender_website: str = ""
     sender_disclaimer: str = ""  # small print under the signature (the company's confidentiality notice)
+    sign_off: str = "Best regards,"
+    logo_path: str = ""  # PNG embedded in the styled copy only; it adds no words, so approval still matches
 
     REQUIRED: ClassVar[tuple[str, ...]] = ("opt_out_line", "sender_name", "sender_title", "sender_email", "company_name", "postal_address")
 

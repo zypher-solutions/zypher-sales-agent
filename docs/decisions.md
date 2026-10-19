@@ -108,3 +108,8 @@ Format: what we decided, why, and the trade-off. Newest first.
 - **Decision:** `consumer_words` in `icp.yaml` (homeowner, DIY, shop now, ...). A proof quote containing any of them is dropped, even if it also names a business word.
 - **Why:** a retail site passed the gate with "a professional contractor, a homeowner ... or a DIY enthusiast": "contractor" and "project" matched the business list. Positive word lists alone cannot tell a shop from a supplier.
 - **Trade-off:** a real B2B company that mentions homeowners loses that one quote; its other quotes can still qualify it. Tenants that sell to consumers set the list to `[]`.
+
+## 2026-10-19: The company logo is embedded in the styled signature
+- **Decision:** reverses "logo left out on purpose" above, at the owner's request. `SENDER_LOGO_PATH` points to a small PNG (6 KB, white background) that travels inside the email (`cid:`, multipart/related) under the address. The plain-text part has no picture. Sign-off is `SENDER_SIGN_OFF` (default "Best regards,"). Opt-out line now sits with the confidentiality notice below the line; the address moved up with the contact details.
+- **Why embedded, not a link to the website:** the site's logo is SVG, which Gmail does not show; a hosted image is blocked by Outlook until the reader clicks and is a remote fetch (looks like tracking). Embedded shows everywhere and nothing is fetched. White background keeps it visible in dark mode.
+- **Trade-off:** any image slightly raises spam risk and adds ~9 KB per email. Kept small, inline (not an attachment), and only in the styled copy. A missing file never blocks a send; preflight warns.

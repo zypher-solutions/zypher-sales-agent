@@ -48,7 +48,7 @@ Google Maps cannot filter for "has a proper office team", so searches are broad 
 Anyone who replies "no thanks" should be added with `/suppress` straight away.
 
 ## Your signature
-Set in `.env`: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_EMAIL`, `SENDER_PHONE`, `SENDER_WEBSITE`, `SENDER_DISCLAIMER`. Every email shows it the same way as your normal company signature. After changing it, run `.\zypher.ps1 refresh` so drafts that are still waiting use the new signature.
+Set in `.env`: `SENDER_NAME`, `SENDER_TITLE`, `SENDER_EMAIL`, `SENDER_PHONE`, `SENDER_WEBSITE`, `SENDER_POSTAL_ADDRESS`, `SENDER_DISCLAIMER`, `SENDER_SIGN_OFF` (default "Best regards,") and `SENDER_LOGO_PATH` (a small PNG, e.g. `assets/logo.png`). Every email ends the same way: sign-off, name and title, company, Email | Office | Website, address, logo, a thin line, then the opt-out line and your confidentiality notice. The AI only writes the body; the signature is always added by code. `.\zypher.ps1 preflight` warns if the logo file is missing or too big. After changing it, run `.\zypher.ps1 refresh` so drafts that are still waiting use the new signature.
 
 ## Sending (switched off until you turn it on)
 1. Put `MAIL_PASSWORD=` (your mailbox password) in `.env` yourself. Never paste it anywhere else.

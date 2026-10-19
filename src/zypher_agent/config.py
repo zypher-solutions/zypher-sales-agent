@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     sender_phone: str = ""
     sender_website: str = ""
     sender_disclaimer: str = ""
+    sender_sign_off: str = "Best regards,"  # the line before the name
+    sender_logo_path: str = ""  # a small PNG embedded under the signature; empty = no logo
     sender_postal_address: str = "TODO: postal address"
     opt_out_line: str = "TODO: opt-out line"
 

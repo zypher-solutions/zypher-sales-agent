@@ -51,6 +51,7 @@ class OutgoingEmail:
     in_reply_to: str | None = None
     references: str | None = None
     html: str | None = None  # a styled copy of the SAME text; the plain part above is always sent too
+    inline_images: tuple[tuple[str, bytes], ...] = ()  # (content id, PNG bytes) shown inside the styled copy
 
 
 class EmailTransport(Protocol):
@@ -63,7 +64,9 @@ def new_message_id(from_addr: str) -> str:
 
 
 def build_mime(email: OutgoingEmail, now: datetime | None = None) -> EmailMessage:
-    """Plain text always; an optional styled HTML copy of the same words. Never images, never a tracking pixel."""
+    """Plain text always; an optional styled HTML copy of the same words, with the sender's logo embedded in it.
+
+    Pictures travel inside the email (multipart/related), never fetched from a server: no tracking pixel possible."""
     msg = EmailMessage()
     msg["From"] = formataddr((email.from_name, email.from_addr)) if email.from_name else email.from_addr
     msg["To"] = email.to
@@ -79,6 +82,9 @@ def build_mime(email: OutgoingEmail, now: datetime | None = None) -> EmailMessag
     msg.set_content(email.body, charset="utf-8")
     if email.html:
         msg.add_alternative(email.html, subtype="html")
+        html_part = msg.get_payload()[-1]
+        for cid, data in email.inline_images:
+            html_part.add_related(data, "image", "png", cid=f"<{cid}>", disposition="inline")
     return msg
 
 

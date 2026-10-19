@@ -40,7 +40,8 @@ def build_footer(settings: Settings, icp: Icp) -> Footer:
         sender_title=settings.sender_title, sender_email=settings.sender_email,
         company_name=icp.company["name"], postal_address=settings.sender_postal_address,
         sender_phone=settings.sender_phone, sender_website=settings.sender_website,
-        sender_disclaimer=settings.sender_disclaimer,
+        sender_disclaimer=settings.sender_disclaimer, sign_off=settings.sender_sign_off or "Best regards,",
+        logo_path=settings.sender_logo_path,
     )
 
 
@@ -64,12 +65,12 @@ def render_email(draft: EmailDraft, contact_name: str | None, footer: Footer) ->
     """The plain-text email: exactly what the owner approves in Telegram and what the plain part of the mail says."""
     contact = " | ".join(f"{label}: {value}" for label, value in _contact_parts(footer))
     lines = [
-        f"{greeting_for(contact_name)}", "", draft.body.strip(), "", "Best,",
-        f"{footer.sender_name} | {footer.sender_title}", footer.company_name, contact, "",
-        footer.opt_out_line, footer.postal_address,
+        f"{greeting_for(contact_name)}", "", draft.body.strip(), "", footer.sign_off,
+        f"{footer.sender_name} | {footer.sender_title}", footer.company_name, contact, footer.postal_address, "",
+        footer.opt_out_line,
     ]
     if footer.sender_disclaimer:
-        lines += ["", footer.sender_disclaimer]
+        lines.append(footer.sender_disclaimer)  # small print stays together: opt-out just above the notice
     return "\n".join(line for i, line in enumerate(lines) if line or lines[i - 1] != "" or i == 0).strip()
 
 
@@ -77,10 +78,11 @@ def _href(value: str) -> str:
     return value if value.startswith(("http://", "https://")) else f"https://{value}"
 
 
-def render_email_html(draft: EmailDraft, contact_name: str | None, footer: Footer) -> str:
+def render_email_html(draft: EmailDraft, contact_name: str | None, footer: Footer, logo_cid: str | None = None) -> str:
     """The same email with the company signature styled (bold name, teal company, small print).
 
-    It says exactly the same words as `render_email`; a test enforces that. No images and no tracking.
+    It says exactly the same words as `render_email`; a test enforces that. The only picture is the sender's own logo,
+    embedded in the email (`cid:`), never loaded from a server, so nothing can track the reader.
     """
     e = html.escape
     para = 'style="margin:0 0 14px 0"'
@@ -98,18 +100,25 @@ def render_email_html(draft: EmailDraft, contact_name: str | None, footer: Foote
         parts.append(f"<b>{label}</b>: {shown}")
     sep = ' <span style="color:#9ca3af">|</span> '  # kept out of the f-string: Python 3.11 forbids backslashes there
     disclaimer = (
-        f'<div style="font-size:11px;color:#1d77c8;margin-top:10px">{e(footer.sender_disclaimer)}</div>'
+        f'<div style="font-size:11px;color:#1d77c8;margin-top:6px">{e(footer.sender_disclaimer)}</div>'
         if footer.sender_disclaimer else ""
+    )
+    logo = (
+        f'<div style="margin-top:12px"><img src="cid:{e(logo_cid)}" alt="{e(footer.company_name)}" width="200" '
+        'style="display:block;width:200px;height:auto;border:0"></div>'
+        if logo_cid else ""
     )
     return (
         '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2933;line-height:1.5">'
-        f"{body}<p {para}>Best,</p>"
+        f"{body}<p {para}>{e(footer.sign_off)}</p>"
         f'<div><span style="font-size:18px;font-weight:bold;color:#1f2a37">{e(footer.sender_name)}</span>'
         f'<span style="color:#9ca3af"> | </span><span style="font-size:15px">{e(footer.sender_title)}</span></div>'
         f'<div style="margin:6px 0;font-style:italic;color:#0f766e;font-size:15px">{e(footer.company_name)}</div>'
         f"<div>{sep.join(parts)}</div>"
+        f'<div style="margin-top:4px;color:#4b5563">{e(footer.postal_address)}</div>'
+        f"{logo}"
         '<div style="border-top:1px solid #e5e7eb;margin:16px 0 8px 0"></div>'
-        f'<div style="font-size:12px;color:#6b7280">{e(footer.opt_out_line)}<br>{e(footer.postal_address)}</div>'
+        f'<div style="font-size:12px;color:#6b7280">{e(footer.opt_out_line)}</div>'
         f"{disclaimer}</div>"
     )
 
