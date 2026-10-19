@@ -68,6 +68,9 @@ You do not schedule anything. When a lead has not replied, the system writes the
 ## Is it working? `stats`
 `.\zypher.ps1 stats` (or `/stats` in Telegram) shows, for the last 7 days and all time: how many companies you emailed, how many replied (and the percentage), how many replies were positive, bounces, opt-outs and complaints, with a plain sentence on what it means. Typical cold email gets about 3 to 5% replies. Under 100 emails the numbers are too small to judge. If fewer than 1% replied after 300 companies, you get a Telegram alert: change the offer or the kind of companies, do not send more of the same. Meetings booked are not counted: keep that number yourself.
 
+## Where to see what was sent
+Every email the system sends is also saved in your mailbox's **Sent** folder (Titan or webmail), so you can see exactly what went out. Telegram also posts "✅ Sent to <address>" for each one, and `.\zypher.ps1 stats` counts them. Only emails sent after this feature was added appear in Sent; earlier test emails do not. If the Sent copy ever fails, the email was still sent, and the problem is logged.
+
 ## What happens after an email is sent
 Every minute the worker reads your mailbox (read-only, and only mail about the emails we sent):
 - **A bounce:** the address is added to the do-not-contact list and you get an alert. Two bounces in a short run pause all sending automatically.

@@ -234,7 +234,12 @@ def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
         except Exception as e:  # noqa: BLE001 - an alert that cannot be delivered must not stop the worker
             print(f"(could not send Telegram alert: {type(e).__name__})")
 
-    worker = SendWorker(repo, SMTPTransport(settings), settings, footer, icp, alert=alert)
+    from zypher_agent.sender.sentcopy import IMAPSentSaver
+
+    worker = SendWorker(
+        repo, SMTPTransport(settings), settings, footer, icp, alert=alert,
+        save_copy=IMAPSentSaver(settings) if settings.save_sent_copy else None,
+    )
     inbox = _inbox_processor(settings, repo, alert)
     followups = None
     if loop:  # the long-running worker also writes follow-ups when they fall due; they still wait for your approval

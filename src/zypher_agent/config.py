@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     smtp_port: int = 465  # 465 = encrypted from the first byte, 587 = upgraded after connecting
     imap_host: str = "imap.secureserver.net"
     imap_port: int = 993
+    sent_folder: str = "Sent"  # where a copy of every sent email is filed, so it shows in your webmail Sent list
+    save_sent_copy: bool = True
     # Master switch. Off means the worker will not send anything, whatever else is configured.
     sending_enabled: bool = False
     # Staged rollout: when set (comma-separated addresses or domains), ONLY these recipients can receive email.

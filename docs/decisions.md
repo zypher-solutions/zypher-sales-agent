@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-20: Every sent email is also filed in the mailbox's Sent folder
+- **Decision:** after a successful send the worker adds a copy of the exact message to the Sent folder over IMAP (`SENT_FOLDER`, default "Sent"; `SAVE_SENT_COPY=false` turns it off), marked as read and dated with the real send time. A failure is logged as `sent_copy_failed` and can never change, undo or repeat the send.
+- **Why:** sending straight through the mail server delivers the email but the server files no copy; only mail apps do that. The owner saw approved, delivered emails missing from the Titan Sent list and could not tell what had gone out.
+- **Trade-off:** this is a write to the real mailbox (an added message in Sent only; the inbox reader stays read-only). The copy is rebuilt from the same fields, so its Date header can differ from the sent one by a moment.
+
 ## 2026-10-20: A company must prove it is the kind we serve, with a verified quote that names something concrete
 - **Decision:** the research agent must return up to 3 `proofs`: verbatim quotes showing an office team (kind `office_team`) or a business-to-business side (kind `business_side`). Code then applies two tests: the quote must exist on a fetched page (found even if the model cites the wrong page), and it must contain a concrete word from `target.proof_words` in icp.yaml (a role or department for office_team, a quotation, tender, project, contract, trade or bulk sale for business_side; whole words, plurals allowed). No surviving proof means the lead is rejected as `no_proof_of_proper_company` before any email is drafted. The surviving quotes are stored (migration 005, `research_reports.qualification`) and shown on the Telegram card as "Why they fit".
 - **Why:** the first live check showed the model almost never disqualified on its own, and its first proofs were real text but proved nothing (an address, a slogan, "contact us for a catalogue"). Verifying that text exists is not the same as verifying that it proves the claim, so the second test is mechanical.

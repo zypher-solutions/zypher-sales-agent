@@ -28,6 +28,7 @@ from zypher_agent.sender.transport import (
     PermanentSendError,
     SendConfigError,
     TransientSendError,
+    build_mime,
     new_message_id,
 )
 
@@ -57,9 +58,11 @@ class SendWorker:
     def __init__(
         self, repo: Repository, transport: EmailTransport, settings: Settings, footer: Footer, icp,
         alert: Callable[[str], None] = lambda text: None, rng: random.Random | None = None,
+        save_copy: Callable[[bytes], None] | None = None,
     ) -> None:
         self.repo, self.transport, self.settings, self.footer, self.icp = repo, transport, settings, footer, icp
         self.alert, self.rng = alert, rng or random.Random()
+        self.save_copy = save_copy  # files a copy in the mailbox's Sent folder after a successful send
         self.sender_tz = ZoneInfo(settings.sender_timezone)
 
     # ---------- one pass ----------
@@ -214,7 +217,18 @@ class SendWorker:
         self.repo.log_event("sent", contact_id=lead.contact_id, message_id=msg.id, actor="sender",
                             payload={"to": lead.email, "step": msg.step, "message_id": header})
         summary.sent += 1
+        self._file_in_sent(out, msg, lead, sent_at)
         self.alert(f"✅ Sent to {lead.email} ({lead.company_name}): \"{subject}\" (email {msg.step})")
+
+    def _file_in_sent(self, out: OutgoingEmail, msg: Message, lead: Lead, sent_at: datetime) -> None:
+        """Courtesy copy for the owner's Sent list. Runs after the send is recorded; it can never undo or repeat it."""
+        if self.save_copy is None:
+            return
+        try:
+            self.save_copy(build_mime(out, now=sent_at).as_bytes())
+        except Exception as e:  # noqa: BLE001 - the email already left; a missing Sent copy is only an inconvenience
+            self.repo.log_event("sent_copy_failed", contact_id=lead.contact_id, message_id=msg.id, actor="sender",
+                                payload={"error": str(e)[:200]})
 
     # ---------- outcomes ----------
 
