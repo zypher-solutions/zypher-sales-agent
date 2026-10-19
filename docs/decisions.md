@@ -103,3 +103,8 @@ Format: what we decided, why, and the trade-off. Newest first.
 - **Decision:** ruff uses an explicit rule list (`E4 E7 E9 F B PLW0127`, Python 3.11 target) instead of ruff's defaults.
 - **Why:** ruff is not version-pinned. An upgrade to 0.17 turned on dozens of style rules overnight and buried two real bugs in the noise: an undefined name that silently broke the "when will it send" message, and an f-string that only parses on Python 3.12+.
 - **Trade-off:** fewer style checks; the kept rules are the ones that find bugs.
+
+## 2026-10-19: Consumer words veto a proof quote
+- **Decision:** `consumer_words` in `icp.yaml` (homeowner, DIY, shop now, ...). A proof quote containing any of them is dropped, even if it also names a business word.
+- **Why:** a retail site passed the gate with "a professional contractor, a homeowner ... or a DIY enthusiast": "contractor" and "project" matched the business list. Positive word lists alone cannot tell a shop from a supplier.
+- **Trade-off:** a real B2B company that mentions homeowners loses that one quote; its other quotes can still qualify it. Tenants that sell to consumers set the list to `[]`.

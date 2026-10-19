@@ -1,5 +1,5 @@
 # Ideal Customer Profile and offer (v2). The agents read this file.
-version: 6
+version: 7
 
 company:
   name: Zypher Software Solutions LLP
@@ -52,6 +52,10 @@ target:
                   engineer, department, branch, employee, reception, customer service, account manager]
     business_side: [quotation, quote, tender, RFQ, project, contract, contractor, wholesale, trade, bulk, B2B,
                     corporate, dealer, distributor, consultant, purchase order, supplier, enterprise]
+  # A quote that also contains any of these is aimed at consumers and is NOT proof, whatever else it says.
+  # A tenant that sells to consumers (hotel, clinic) sets this to [] to turn the veto off.
+  consumer_words: [homeowner, DIY, individual, personal use, household, family, families, shopper, walk-in,
+                   retail customer, consumer, shop now, add to cart]
   good_signals:
     - quotes or proposals are sent and then chased by hand (no tracking or automatic follow-up)
     - clients get project, order or delivery status updates by phone, WhatsApp or email

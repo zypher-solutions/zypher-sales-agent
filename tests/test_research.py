@@ -283,3 +283,51 @@ def test_plurals_and_capitals_are_handled_but_part_words_are_not():
     assert _proof("office_team", "Our engineers and estimators review every drawing")[0]
     assert not _proof("business_side", "A tradeshow-ready brand identity for everyone")[0]  # whole words only
     assert not _proof("office_team", "Salesforce is our favourite cloud tool and nothing else here")[0]
+
+
+# ---------- a quote aimed at consumers is not proof ----------
+
+CONSUMER = ICP.target["consumer_words"]
+KN_QUOTE = ("Whether you’re a professional contractor, a homeowner embarking on a renovation project, "
+            "or a DIY enthusiast")  # passed the old gate on a real retail site
+
+
+def _vetted(proofs, consumer_words=CONSUMER):
+    from zypher_agent.research.agent import verify_proofs
+    pages = [page("https://x.com/", " ".join(q for _, q in proofs))]
+    raw = [ProofOut(kind=k, quote=q, source_url="https://x.com/") for k, q in proofs]
+    return verify_proofs(raw, pages, "", WORDS, consumer_words)
+
+
+def test_a_quote_aimed_at_homeowners_or_diy_is_rejected_even_with_business_words():
+    kept, dropped = _vetted([("business_side", KN_QUOTE)])
+    assert kept == [] and "aimed at consumers" in dropped[0]["reason"]
+
+
+def test_shop_phrases_are_rejected():
+    for quote in ("Shop now for contractor tools and bulk packs", "Add to cart: trade quality supplier paint"):
+        kept, dropped = _vetted([("business_side", quote)])
+        assert kept == [] and "aimed at consumers" in dropped[0]["reason"], quote
+
+
+def test_a_clean_business_quote_still_passes():
+    kept, _ = _vetted([("business_side", "Approved supplier to leading contractors and consultants across the UAE")])
+    assert len(kept) == 1
+
+
+def test_one_consumer_quote_does_not_sink_a_company_with_other_proof():
+    kept, dropped = _vetted([
+        ("business_side", KN_QUOTE),
+        ("office_team", "Our sales and accounts departments work from the Dubai head office"),
+    ])
+    assert [p["kind"] for p in kept] == ["office_team"] and len(dropped) == 1
+
+
+def test_an_empty_list_turns_the_veto_off_for_tenants_who_sell_to_consumers():
+    kept, _ = _vetted([("business_side", KN_QUOTE)], consumer_words=[])
+    assert len(kept) == 1
+
+
+def test_the_research_prompt_warns_the_model_off_consumer_quotes():
+    from zypher_agent.research.agent import system_prompt
+    assert "homeowner" in system_prompt(ICP)

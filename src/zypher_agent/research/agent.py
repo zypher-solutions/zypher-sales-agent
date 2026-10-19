@@ -100,6 +100,11 @@ def system_prompt(icp: Icp) -> str:
     bad = "\n".join(f"- {s}" for s in icp.target["disqualifiers"])
     offer = first_touch_offer(icp)
     focus = " ".join(offer.evidence_focus.split())  # the YAML text may wrap over several lines
+    consumer = icp.target.get("consumer_words") or []
+    consumer_line = (
+        f" A quote that speaks to consumers ({', '.join(consumer[:8])}) is rejected by code even if it names a"
+        " business word, so do not pick one." if consumer else ""
+    )
     return f"""You are a research analyst for {icp.company['name']}, which sells {icp.company['primary_service']} to small and mid-sized businesses.
 You read the pages of ONE company's website and report what it does and evidence of {focus} that our first-touch offer could help with.
 
@@ -132,7 +137,7 @@ a business sale such as {', '.join(proof_words.get('business_side', [])[:12])}. 
 phone number or "contact us for a catalogue" is rejected by code.
 Return `proofs`: up to 3 exact quotes from the pages showing EITHER an office team (kind office_team) OR that they sell
 to businesses by quotation, tender, project or account (kind business_side). The quote must be copied character for
-character. A shop selling to walk-in customers, a price list, a gallery or a slogan is NOT proof. If the pages show
+character. A shop selling to walk-in customers, a price list, a gallery or a slogan is NOT proof.{consumer_line} If the pages show
 neither, return an empty list: do not stretch a quote to fit.
 Use 'too_small_or_informal' when the pages show a freelancer, a one-person or informal operation, or no office team
 and no formal paperwork at all. Judge only from the pages: when they say too little to tell, do NOT disqualify.
@@ -206,11 +211,13 @@ def _names_something(quote: str, words: list[str]) -> bool:
 
 def verify_proofs(
     raw: list[ProofOut], pages: list[Page], own_name: str = "", proof_words: dict[str, list[str]] | None = None,
+    consumer_words: list[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Keep only proofs whose quote really appears on a fetched page AND names something concrete.
 
     Two tests, both in code: the text must exist on the page (a model claim without a quote proves nothing), and
-    it must mention a role, department or business sale. A slogan or an address proves nothing."""
+    it must mention a role, department or business sale. A slogan or an address proves nothing. A quote that also
+    speaks to consumers (homeowners, DIY, "shop now") is a shop talking, so it is vetoed whatever else it names."""
     own = re.compile(rf"\b{re.escape(own_name.split()[0])}\b", re.IGNORECASE) if own_name.split() else None
     texts = {p.url: _norm(p.text) for p in pages}
     kept: list[dict] = []
@@ -225,6 +232,8 @@ def verify_proofs(
             url = next((u for u in [p.source_url, *texts] if quote in texts.get(u, "")), None)
             if url is None:
                 dropped.append({"kind": p.kind, "reason": "quote not found on any fetched page"})
+            elif consumer_words and _names_something(p.quote, consumer_words):
+                dropped.append({"kind": p.kind, "reason": "quote is aimed at consumers, not businesses"})
             elif proof_words and not _names_something(p.quote, proof_words.get(p.kind, [])):
                 dropped.append({"kind": p.kind, "reason": "quote names no role, department or business sale: a slogan or address is not proof"})
             else:
@@ -259,7 +268,9 @@ def research_lead(lead: Lead, *, fetcher: Fetcher, llm: LLM, icp: Icp, repo: Rep
     if dropped:
         repo.log_event("research_hypotheses_dropped", contact_id=lead.contact_id, payload={"dropped": dropped})
 
-    proofs, proofs_dropped = verify_proofs(out.proofs, site.pages, icp.company["name"], icp.target.get("proof_words"))
+    proofs, proofs_dropped = verify_proofs(
+        out.proofs, site.pages, icp.company["name"], icp.target.get("proof_words"), icp.target.get("consumer_words"),
+    )
     if proofs_dropped:
         repo.log_event("research_proofs_dropped", contact_id=lead.contact_id, payload={"dropped": proofs_dropped})
     page_text = _norm(" ".join(p.text for p in site.pages))
