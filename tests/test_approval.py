@@ -314,3 +314,17 @@ def test_stats_command_in_telegram_shows_the_report():
     say(service, "/stats")
     text = notifier.sent[-1]["text"]
     assert text.startswith("📊") and "Last 7 days" in text and "All time" in text and "Too early" in text
+
+
+def test_the_card_shows_why_the_company_fits():
+    from zypher_agent.models import ResearchReport
+
+    repo, notifier, service, msg, _ = world()
+    proof = [{"kind": "business_side", "quote": "Request a quote for trade and bulk orders", "source_url": "https://acme.com/"}]
+    ev = {**msg.evidence, "qualification": proof}
+    repo.update_message(msg.id, evidence=ev)
+    lead = repo.get_lead(msg.contact_id)
+    from zypher_agent.approval import format_card
+    text = format_card(repo.get_message(msg.id), lead)
+    assert "🏢 Why they fit (business side): “Request a quote for trade and bulk orders”" in text
+    assert text.index("ONLY FOR YOU") < text.index("Why they fit") < text.index("Evidence:") and ResearchReport

@@ -381,3 +381,11 @@ def test_statistics_queries(repo):
     got = [e for e in repo.events_of(["replied"], now - timedelta(minutes=5)) if e["contact_id"] == cid]
     assert len(got) == 1 and got[0]["payload"]["class"] == "interested" and got[0]["type"] == "replied"
     assert not [e for e in repo.events_of(["replied"], now + timedelta(minutes=5)) if e["contact_id"] == cid]
+
+
+def test_research_keeps_the_proof_of_a_proper_company(repo):
+    cid, _ = new_lead(repo)
+    company_id = repo.get_lead(cid).company_id
+    proof = [{"kind": "office_team", "quote": "Our sales and accounts teams work from our head office", "source_url": "https://a.com/about"}]
+    repo.save_research(company_id, ResearchReport(services=["s"], qualification=proof, model="m"))
+    assert repo.latest_research(company_id).qualification == proof

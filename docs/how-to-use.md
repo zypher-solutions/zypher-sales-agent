@@ -24,6 +24,9 @@ Open one terminal in the project folder and run `.\zypher.ps1 start`. Leave the 
 ## Who we are looking for
 A kind of company, not a sector: an established business with a proper office and an office team, formal quotations, contracts and invoices, and a flow that is real but messy. Not freelancers, one-person or informal businesses, or walk-in shops. The research step checks this on each website and rejects the rest with a reason.
 
+## The "Why they fit" line
+Under the evidence on each card, a line starting with 🏢 quotes the sentence from the company's own website that shows it has a real office team or sells to businesses. Companies that show no such sentence are rejected before an email is written, and `status` counts them as disqualified. If a card's "Why they fit" line looks weak to you, reject the card; this is where your judgement matters most.
+
 ## What to search for
 Google Maps cannot filter for "has a proper office team", so searches are broad and the research step does the filtering. Use words for business-to-business companies rather than shops: "trading company", "supplier", "distributor", "importer", "contracting company", "engineering company", "consultancy", "manufacturer", "wholesaler", "fit out company". Avoid shop words like "store" or "salon". Use `--preview` to look at the results for pennies before importing, and look at which companies would pass the "proper office, proper paperwork" test.
 

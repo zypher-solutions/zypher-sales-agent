@@ -126,7 +126,8 @@ def format_card(msg: Message, lead: Lead, total_steps: int = 4, previous: Messag
         for h in ev["hypotheses"]:
             line = f"{h['id']} ({h['confidence']}): {h['hypothesis']}"
             lines.append(line + (f"\n   “{h['quote']}” — {h['source_url']}" if quotes else ""))
-        return f"{NOTES_BANNER}\nEvidence:\n" + "\n".join(lines)
+        fit = [f"🏢 Why they fit ({q['kind'].replace('_', ' ')}): “{q['quote'][:160]}”" for q in ev.get("qualification", [])[:2]]
+        return f"{NOTES_BANNER}\n" + ("\n".join(fit) + "\n\n" if fit else "") + "Evidence:\n" + "\n".join(lines)
 
     for with_quotes in (True, False):
         text = "\n\n".join([head, status, mail, evidence(with_quotes)])

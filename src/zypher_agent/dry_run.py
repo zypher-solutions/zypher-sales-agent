@@ -19,7 +19,7 @@ from zypher_agent.db import InMemoryRepo
 from zypher_agent.llm import MockLLM
 from zypher_agent.models import Claim, CompanyIn, ContactIn, EmailDraft, Footer
 from zypher_agent.pipeline import Pipeline, RunSummary
-from zypher_agent.research.agent import HypothesisOut, ResearchOutput
+from zypher_agent.research.agent import HypothesisOut, ProofOut, ResearchOutput
 from zypher_agent.research.fetcher import FakeFetcher, Page, SiteFetch
 
 OWNER_ID = 1001
@@ -77,6 +77,8 @@ RESEARCH = {
                           quote="hiring an operations coordinator to handle shipment documentation and data entry",
                           source_url="https://acme-freight-demo.com/careers", confidence="medium"),
         ],
+        proofs=[ProofOut(kind="business_side", quote="Request a quote by email or WhatsApp and our team will reply with rates",
+                         source_url="https://acme-freight-demo.com/")],
         disqualify="none", disqualify_evidence="",
     ),
     "sunrise-clinic-demo.com": ResearchOutput(
@@ -88,11 +90,13 @@ RESEARCH = {
             HypothesisOut(hypothesis="Patients likely wait a long time for a callback",  # invented: not on the page
                           quote="Patients often wait over an hour for a callback", source_url="https://sunrise-clinic-demo.com/", confidence="medium"),
         ],
+        proofs=[ProofOut(kind="office_team", quote="Our reception team confirms every booking by phone",
+                         source_url="https://sunrise-clinic-demo.com/")],
         disqualify="none", disqualify_evidence="",
     ),
     "devcraft-demo.com": ResearchOutput(
         services=["Web apps", "Mobile apps"], tech_signals=[], industry="Software", decision_maker=None, summary="A software agency.",
-        hypotheses=[], disqualify="it_or_software_vendor", disqualify_evidence="Sells custom web and mobile apps.",
+        hypotheses=[], proofs=[], disqualify="it_or_software_vendor", disqualify_evidence="Sells custom web and mobile apps.",
     ),
     # No entry for ghost-trading-demo.com on purpose: its page is stopped before the LLM is called,
     # and a KeyError here would flag a regression.

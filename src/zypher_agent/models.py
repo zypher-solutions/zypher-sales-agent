@@ -75,6 +75,7 @@ class ResearchReport(BaseModel):
     disqualify_reason: str | None = None  # set when the lead breaks an icp.yaml disqualifier
     decision_maker: str | None = None
     public_emails: list[str] = []
+    qualification: list[dict] = []  # verified proof the company is the kind we serve: [{kind, quote, source_url}]
     pages_fetched: list[dict] = []  # [{url, fetched_at, text_hash}]
     model: str = ""
 

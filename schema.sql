@@ -1,4 +1,4 @@
--- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001 to 004).
+-- Zypher Sales Agent: Supabase/Postgres schema (current state, includes migrations 001 to 005).
 -- Fresh database: run this file only. Existing database: run the numbered files in migrations/ instead.
 create extension if not exists "pgcrypto";
 
@@ -77,6 +77,7 @@ create table research_reports (
   disqualify_reason text,
   decision_maker text,
   public_emails text[],
+  qualification jsonb,                   -- [{kind, quote, source_url}]: verified proof of an office team or B2B side
   created_at timestamptz default now()
 );
 

@@ -49,6 +49,19 @@ class HypothesisOut(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+ProofKind = Literal["office_team", "business_side"]
+
+
+class ProofOut(BaseModel):
+    kind: ProofKind = Field(
+        description="office_team: the pages show people or roles beyond the owner (departments, named staff, branches, "
+                    "a careers page). business_side: the pages show they sell to businesses by quotation, tender, project "
+                    "or account (request a quotation, bulk or trade orders, contracts, dealers, B2B clients)"
+    )
+    quote: str = Field(description="Exact text copied verbatim from a page that proves it (15+ characters)")
+    source_url: str = Field(description="The url of the page the quote came from")
+
+
 class ResearchOutput(BaseModel):
     """What the LLM returns. Pure data: nothing in here can trigger an action."""
 
@@ -58,6 +71,10 @@ class ResearchOutput(BaseModel):
     decision_maker: str | None = Field(description="Owner/founder/MD/GM name only if a page names them, else null")
     summary: str
     hypotheses: list[HypothesisOut]
+    proofs: list[ProofOut] = Field(
+        description="0 to 3 verbatim quotes proving this is an established company with an office team or a "
+                    "business-to-business side. Empty if the pages do not show either."
+    )
     disqualify: Disqualify
     disqualify_evidence: str = Field(description="One sentence of evidence if disqualify is not 'none', else empty")
 
@@ -79,6 +96,7 @@ def system_prompt(icp: Icp) -> str:
     good = "\n".join(f"- {s}" for s in icp.target["good_signals"])
     structure = "\n".join(f"- {s}" for s in icp.target.get("qualifying_structure", []))
     who = " ".join(str(icp.target["industry_policy"]).split())
+    proof_words = icp.target.get("proof_words", {})
     bad = "\n".join(f"- {s}" for s in icp.target["disqualifiers"])
     offer = first_touch_offer(icp)
     focus = " ".join(offer.evidence_focus.split())  # the YAML text may wrap over several lines
@@ -108,6 +126,14 @@ WHO WE SELL TO
 {who}
 Evidence the company is the kind we serve:
 {structure}
+PROOF OF A PROPER COMPANY (required)
+The quote must NAME something concrete. For office_team it must name a role or department such as {', '.join(proof_words.get('office_team', [])[:12])}. For business_side it must mention
+a business sale such as {', '.join(proof_words.get('business_side', [])[:12])}. A slogan ("our professional team"), an address, a
+phone number or "contact us for a catalogue" is rejected by code.
+Return `proofs`: up to 3 exact quotes from the pages showing EITHER an office team (kind office_team) OR that they sell
+to businesses by quotation, tender, project or account (kind business_side). The quote must be copied character for
+character. A shop selling to walk-in customers, a price list, a gallery or a slogan is NOT proof. If the pages show
+neither, return an empty list: do not stretch a quote to fit.
 Use 'too_small_or_informal' when the pages show a freelancer, a one-person or informal operation, or no office team
 and no formal paperwork at all. Judge only from the pages: when they say too little to tell, do NOT disqualify.
 
@@ -173,6 +199,39 @@ def verify_hypotheses(
     return kept, dropped
 
 
+def _names_something(quote: str, words: list[str]) -> bool:
+    """True if the quote contains one of the concrete words (whole words, plurals allowed)."""
+    return any(re.search(rf"\b{re.escape(w)}(?:s|es)?\b", quote, re.IGNORECASE) for w in words)
+
+
+def verify_proofs(
+    raw: list[ProofOut], pages: list[Page], own_name: str = "", proof_words: dict[str, list[str]] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Keep only proofs whose quote really appears on a fetched page AND names something concrete.
+
+    Two tests, both in code: the text must exist on the page (a model claim without a quote proves nothing), and
+    it must mention a role, department or business sale. A slogan or an address proves nothing."""
+    own = re.compile(rf"\b{re.escape(own_name.split()[0])}\b", re.IGNORECASE) if own_name.split() else None
+    texts = {p.url: _norm(p.text) for p in pages}
+    kept: list[dict] = []
+    dropped: list[dict] = []
+    for p in raw[:3]:
+        quote = _norm(p.quote)
+        if len(quote) < MIN_QUOTE_CHARS:
+            dropped.append({"kind": p.kind, "reason": "quote too short"})
+        elif QUOTE_AIMED_AT_AI.search(p.quote) or (own is not None and own.search(p.quote)):
+            dropped.append({"kind": p.kind, "reason": "quote is addressed to an AI or mentions us"})
+        else:
+            url = next((u for u in [p.source_url, *texts] if quote in texts.get(u, "")), None)
+            if url is None:
+                dropped.append({"kind": p.kind, "reason": "quote not found on any fetched page"})
+            elif proof_words and not _names_something(p.quote, proof_words.get(p.kind, [])):
+                dropped.append({"kind": p.kind, "reason": "quote names no role, department or business sale: a slogan or address is not proof"})
+            else:
+                kept.append({"kind": p.kind, "quote": p.quote.strip(), "source_url": url})
+    return kept, dropped
+
+
 def research_lead(lead: Lead, *, fetcher: Fetcher, llm: LLM, icp: Icp, repo: Repository) -> ResearchReport:
     site = fetcher.fetch_site(lead.website or lead.domain)
     repo.log_event(
@@ -200,12 +259,18 @@ def research_lead(lead: Lead, *, fetcher: Fetcher, llm: LLM, icp: Icp, repo: Rep
     if dropped:
         repo.log_event("research_hypotheses_dropped", contact_id=lead.contact_id, payload={"dropped": dropped})
 
+    proofs, proofs_dropped = verify_proofs(out.proofs, site.pages, icp.company["name"], icp.target.get("proof_words"))
+    if proofs_dropped:
+        repo.log_event("research_proofs_dropped", contact_id=lead.contact_id, payload={"dropped": proofs_dropped})
     page_text = _norm(" ".join(p.text for p in site.pages))
     decision_maker = out.decision_maker if out.decision_maker and _norm(out.decision_maker) in page_text else None
 
     reason = None
     if out.disqualify != "none":
         reason = f"{out.disqualify}: {out.disqualify_evidence}".strip()
+    elif not proofs:
+        reason = ("no_proof_of_proper_company: no verified quote showed an office team or a business-to-business "
+                  "side, so this does not look like the kind of company we serve")
     elif not hypotheses:
         reason = "no_evidenced_workflow_pain: no hypothesis could be backed by a quote from the site"
 
@@ -213,5 +278,5 @@ def research_lead(lead: Lead, *, fetcher: Fetcher, llm: LLM, icp: Icp, repo: Rep
     return ResearchReport(
         services=out.services, tech_signals=out.tech_signals, hypotheses=hypotheses, summary=out.summary,
         industry=out.industry, disqualify_reason=reason, decision_maker=decision_maker,
-        public_emails=emails, pages_fetched=[p.meta() for p in site.pages], model=llm.model,
+        public_emails=emails, qualification=proofs, pages_fetched=[p.meta() for p in site.pages], model=llm.model,
     )

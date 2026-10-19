@@ -239,6 +239,7 @@ def evidence_for(result: DraftResult, report: ResearchReport) -> dict:
     return {
         "draft": result.draft.model_dump(),
         "hypotheses": [h.model_dump() for h in report.hypotheses],
+        "qualification": report.qualification,
         "guardrails": result.check.model_dump(),
         "attempts": result.attempts,
     }

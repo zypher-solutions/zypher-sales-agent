@@ -204,13 +204,13 @@ class PostgresRepo:
         row = self._exec(
             """insert into research_reports
                  (tenant_id, company_id, pages_fetched, services, tech_signals, workflow_hypotheses,
-                  summary, model, disqualify_reason, decision_maker, public_emails)
-               select %s, co.id, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                  summary, model, disqualify_reason, decision_maker, public_emails, qualification)
+               select %s, co.id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                from companies co where co.id = %s and co.tenant_id = %s
                returning id""",
             (self.tenant_id, Jsonb(report.pages_fetched), report.services, report.tech_signals,
              Jsonb([h.model_dump() for h in report.hypotheses]), report.summary, report.model,
-             report.disqualify_reason, report.decision_maker, report.public_emails,
+             report.disqualify_reason, report.decision_maker, report.public_emails, Jsonb(report.qualification),
              company_id, self.tenant_id),
         ).fetchone()
         if row is None:
@@ -230,7 +230,7 @@ class PostgresRepo:
             hypotheses=[Hypothesis(**h) for h in r["workflow_hypotheses"] or []],
             summary=r["summary"] or "", disqualify_reason=r["disqualify_reason"],
             decision_maker=r["decision_maker"], public_emails=r["public_emails"] or [],
-            pages_fetched=r["pages_fetched"] or [], model=r["model"] or "",
+            qualification=r.get("qualification") or [], pages_fetched=r["pages_fetched"] or [], model=r["model"] or "",
         )
 
     @staticmethod

@@ -44,6 +44,14 @@ target:
     - an office team beyond the owner (sales, accounts, procurement, admin, HR, project or operations coordinators)
     - formal paperwork such as quotations, proposals, contracts, purchase orders, invoices and tenders
     - roughly 10 to 200 staff (a team or about page, a careers page, many named people or roles)
+  # A proof quote only counts if it NAMES something concrete. A slogan ("our professional team"), an address
+  # or "contact us for a catalogue" proves nothing. Whole words, plurals allowed.
+  proof_words:
+    office_team: [sales, accounts, accountant, accounting, procurement, purchasing, administration, admin, finance,
+                  HR, human resources, coordinator, project manager, estimator, estimating, quantity surveyor,
+                  engineer, department, branch, employee, reception, customer service, account manager]
+    business_side: [quotation, quote, tender, RFQ, project, contract, contractor, wholesale, trade, bulk, B2B,
+                    corporate, dealer, distributor, consultant, purchase order, supplier, enterprise]
   good_signals:
     - quotes or proposals are sent and then chased by hand (no tracking or automatic follow-up)
     - clients get project, order or delivery status updates by phone, WhatsApp or email
