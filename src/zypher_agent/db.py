@@ -71,6 +71,9 @@ class Repository(Protocol):
     def message_by_header(self, header: str) -> Message | None: ...
     def lead_by_email(self, email: str) -> Lead | None: ...
     def recent_sent(self, limit: int) -> list[Message]: ...
+    # statistics
+    def sent_since(self, since: datetime | None) -> list[Message]: ...
+    def events_of(self, types: list[str], since: datetime | None) -> list[dict]: ...
     def inbox_cursor(self) -> tuple[int, int] | None: ...
     def set_inbox_cursor(self, uidvalidity: int, uid: int) -> None: ...
     def log_event(
@@ -411,6 +414,23 @@ class PostgresRepo:
         ).fetchall()
         return [self._message(r) for r in rows]
 
+    def sent_since(self, since: datetime | None) -> list[Message]:
+        rows = self._exec(
+            """select * from messages where tenant_id = %s and direction = 'outbound' and sent_at is not null
+               and (%s::timestamptz is null or sent_at >= %s) order by sent_at""",
+            (self.tenant_id, since, since),
+        ).fetchall()
+        return [self._message(r) for r in rows]
+
+    def events_of(self, types: list[str], since: datetime | None) -> list[dict]:
+        """(contact_id, type, payload, at) of events of the given types, oldest first."""
+        rows = self._exec(
+            """select contact_id::text as contact_id, type, payload, created_at as at from events
+               where tenant_id = %s and type = any(%s) and (%s::timestamptz is null or created_at >= %s) order by id""",
+            (self.tenant_id, types, since, since),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def inbox_cursor(self) -> tuple[int, int] | None:
         """(UIDVALIDITY, last UID handled) of the mailbox poll. Kept in the event log: no extra table."""
         r = self._exec(
@@ -718,6 +738,21 @@ class InMemoryRepo:
         sent = [m for m in self.messages.values()
                 if m.direction == "outbound" and m.sent_at is not None and self._store.message_tenant[m.id] == self.tenant_id]
         return sorted(sent, key=lambda m: m.sent_at, reverse=True)[:limit]
+
+    def sent_since(self, since: datetime | None) -> list[Message]:
+        return sorted(
+            (m for m in self.messages.values()
+             if m.direction == "outbound" and m.sent_at is not None and (since is None or m.sent_at >= since)
+             and self._store.message_tenant[m.id] == self.tenant_id),
+            key=lambda m: m.sent_at,
+        )
+
+    def events_of(self, types: list[str], since: datetime | None) -> list[dict]:
+        return [
+            {"contact_id": e["contact_id"], "type": e["type"], "payload": e["payload"], "at": e["at"]}
+            for e in self.events
+            if e["tenant_id"] == self.tenant_id and e["type"] in types and (since is None or e["at"] >= since)
+        ]
 
     def inbox_cursor(self) -> tuple[int, int] | None:
         found = [e for e in self.events if e["tenant_id"] == self.tenant_id and e["type"] == "inbox_cursor"]

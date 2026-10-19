@@ -363,3 +363,21 @@ def test_has_event_since(repo):
     assert repo.has_event_since(cid, "out_of_office", now - timedelta(days=7)) is True
     assert repo.has_event_since(cid, "out_of_office", now + timedelta(days=1)) is False
     assert repo.has_event_since(cid, "replied", now - timedelta(days=7)) is False
+
+
+# --- statistics queries ---
+
+def test_statistics_queries(repo):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    cid, _ = new_lead(repo)
+    m = repo.save_message(NewMessage(contact_id=cid, subject="s", body="b"))
+    repo.update_message(m.id, status="sent", sent_at=now - timedelta(days=2))
+    assert m.id in [x.id for x in repo.sent_since(None)]
+    assert m.id in [x.id for x in repo.sent_since(now - timedelta(days=7))]
+    assert m.id not in [x.id for x in repo.sent_since(now - timedelta(days=1))]
+    repo.log_event("replied", contact_id=cid, payload={"class": "interested", "opt_out": False})
+    repo.log_event("bounced", contact_id=cid, payload={})
+    got = [e for e in repo.events_of(["replied"], now - timedelta(minutes=5)) if e["contact_id"] == cid]
+    assert len(got) == 1 and got[0]["payload"]["class"] == "interested" and got[0]["type"] == "replied"
+    assert not [e for e in repo.events_of(["replied"], now + timedelta(minutes=5)) if e["contact_id"] == cid]

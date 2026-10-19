@@ -359,7 +359,7 @@ class InboxProcessor:
             self.repo.update_message(stored.id, message_id_header=p.message_id)
         self.repo.set_lead_status(lead.contact_id, "replied")
         withdrawn = self.repo.cancel_unsent(lead.contact_id, "contact replied")
-        self.repo.log_event("replied", contact_id=lead.contact_id, message_id=stored.id, payload={"class": label, "from": p.sender})
+        self.repo.log_event("replied", contact_id=lead.contact_id, message_id=stored.id, payload={"class": label, "from": p.sender, "opt_out": opt_out, "complaint": complaint})
         note = ""
         if opt_out:
             self.repo.add_suppression("complaint" if complaint else "unsubscribe", email=lead.email or p.sender)

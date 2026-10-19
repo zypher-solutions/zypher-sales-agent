@@ -53,6 +53,9 @@ Telegram never shows more than 10 cards at once (`MAX_OPEN_CARDS` in `.env`). If
 ## Follow-ups
 You do not schedule anything. When a lead has not replied, the system writes the next email once the wait is over (3, then 5, then 9 working days in the lead's country), and a card appears in Telegram. You approve it like the first one. `.\zypher.ps1 draft` checks for due follow-ups, and the worker checks about every 30 minutes. They are sent as replies in the same thread. The sequence stops by itself when someone replies, bounces or opts out, and after the fourth email it never contacts them again.
 
+## Is it working? `stats`
+`.\zypher.ps1 stats` (or `/stats` in Telegram) shows, for the last 7 days and all time: how many companies you emailed, how many replied (and the percentage), how many replies were positive, bounces, opt-outs and complaints, with a plain sentence on what it means. Typical cold email gets about 3 to 5% replies. Under 100 emails the numbers are too small to judge. If fewer than 1% replied after 300 companies, you get a Telegram alert: change the offer or the kind of companies, do not send more of the same. Meetings booked are not counted: keep that number yourself.
+
 ## What happens after an email is sent
 Every minute the worker reads your mailbox (read-only, and only mail about the emails we sent):
 - **A bounce:** the address is added to the do-not-contact list and you get an alert. Two bounces in a short run pause all sending automatically.

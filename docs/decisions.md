@@ -2,6 +2,11 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-19: Statistics and the low reply-rate alert (advice, never a pause)
+- **Decision:** `stats` (and `/stats` in Telegram) report, for the last 7 days and all time: companies emailed, first emails and follow-ups, replies with a rate (one reply per person, their first), positive replies, bounces, opt-outs and complaints, then one honest sentence on what the all-time numbers mean. After 300 companies emailed, a reply rate under 1% sends a Telegram alert (again only after 100 more emails). The alert is advice: it never pauses sending, unlike bounces and complaints, which do.
+- **Why:** without reply rates the owner cannot tell whether the offer works, which matters more than any other feature. Under 1% after 300 emails means the offer or targeting is wrong and more volume makes it worse.
+- **Limits:** meetings booked are not counted because the system never sees the calendar; the 3 to 5% benchmark is a vendor-reported range, not a promise.
+
 ## 2026-10-19: Telegram never shows more than 10 cards at once; follow-ups get short cards
 - **Decision:** `MAX_OPEN_CARDS` (default 10) caps cards waiting for your review. Drafts beyond it wait in the database (status `draft`, lead `drafted`) and are released, follow-ups first, whenever you clear a card: after every run, by the bot as soon as you tap, and by the worker. A card waiting for your typed feedback counts as open. Follow-up cards are short (step, what the previous email was, the new text, the evidence it cites) because the signature and full evidence were already seen on email 1. `/queue` shows open and queued counts. Anyone who opts out while queued is dropped, never shown.
 - **Why:** with four steps per lead the cards would otherwise pile up faster than they can be read. A separate chat only splits the pile.

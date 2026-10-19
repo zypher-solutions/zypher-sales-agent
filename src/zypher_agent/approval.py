@@ -30,7 +30,8 @@ HELP = (
     "/suppress name@company.com  never contact this address again\n"
     "/suppress company.com  never contact anyone at this domain again\n"
     "/pause  stop all sending now    /resume  start again    /status  what is waiting and sent\n"
-    "/queue  how many cards are waiting for you and how many are queued behind them"
+    "/queue  how many cards are waiting for you and how many are queued behind them\n"
+    "/stats  emails sent, replies, bounces and opt-outs (last 7 days and all time)"
 )
 
 
@@ -298,6 +299,11 @@ class ApprovalService:
         command = text.split(" ")[0].split("@")[0]  # "/suppress@BotName x" is how groups send it
         if command == "/suppress":
             self._suppress(chat_id, user, text.split(maxsplit=1)[1] if " " in text else "")
+            return
+        if command == "/stats":
+            from zypher_agent.sender.stats import build_report, format_report
+
+            self.notifier.send(chat_id, "📊 " + format_report(build_report(self.repo)))
             return
         if command == "/queue":
             self.notifier.send(chat_id, self.queue_summary())

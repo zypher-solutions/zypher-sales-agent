@@ -160,6 +160,17 @@ def _inbox_processor(settings: Settings, repo, alert):
     return InboxProcessor(repo, IMAPMailbox(settings), llm, alert)
 
 
+def _stats(settings: Settings) -> int:
+    from zypher_agent.db import PostgresRepo
+    from zypher_agent.sender.stats import build_report, format_report
+
+    _require(settings, "database_url")
+    repo = PostgresRepo(settings.database_url.get_secret_value(), settings.tenant_id)
+    print(format_report(build_report(repo)))
+    print("\nMeetings booked are not tracked: the system never sees your calendar. Keep that count yourself.")
+    return 0
+
+
 def _inbox(settings: Settings) -> int:
     from zypher_agent.db import PostgresRepo
 
@@ -228,6 +239,13 @@ def _send(settings: Settings, loop: bool) -> int:
                     print(f"[{stamp}] follow-ups drafted for your approval: {fs.followups} (sequences finished: {fs.completed})")
             except Exception as e:  # noqa: BLE001 - drafting trouble must not stop the sending worker
                 print(f"[{stamp}] follow-up drafting failed ({type(e).__name__}); will retry")
+        if cycle % 60 == 0:  # about hourly: advice only, it never pauses sending
+            try:
+                from zypher_agent.sender.stats import check_reply_rate
+
+                check_reply_rate(repo, alert)
+            except Exception as e:  # noqa: BLE001 - advice must never stop the sending worker
+                print(f"[{stamp}] reply-rate check failed ({type(e).__name__})")
         cycle += 1
         s = worker.run_once()
         if s.paused:
@@ -284,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("refresh", help="redraft every draft still awaiting approval with the current prompt, replace its card")
     sub.add_parser("status", help="show how many leads are at each stage and what needs your attention")
     sub.add_parser("send", help="one pass: send approved emails that the send policy allows right now")
+    sub.add_parser("stats", help="emails sent, replies, bounces, opt-outs and what the numbers mean")
     sub.add_parser("inbox", help="read the mailbox once: bounces, replies and opt-outs about YOUR emails only")
     sub.add_parser("worker", help="keep sending approved emails as the policy allows (leave running; Ctrl+C stops)")
     tm = sub.add_parser("testmail", help="send ONE plain test email to an address you own, to check SPF/DKIM headers")
@@ -332,6 +351,8 @@ def main(argv: list[str] | None = None) -> int:
         return _status(settings)
     if args.cmd == "preflight":
         return _preflight(settings)
+    if args.cmd == "stats":
+        return _stats(settings)
     if args.cmd == "inbox":
         return _inbox(settings)
     if args.cmd == "testmail":

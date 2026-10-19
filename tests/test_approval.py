@@ -301,3 +301,10 @@ def test_alert_goes_to_the_approval_chat():
     _, notifier, service, _, _ = world()
     service.alert("Bounced: x@y.com")
     assert notifier.sent[-1]["chat_id"] == service.chat_id and "Bounced" in notifier.sent[-1]["text"]
+
+
+def test_stats_command_in_telegram_shows_the_report():
+    repo, notifier, service, _, _ = world()
+    say(service, "/stats")
+    text = notifier.sent[-1]["text"]
+    assert text.startswith("📊") and "Last 7 days" in text and "All time" in text and "Too early" in text
