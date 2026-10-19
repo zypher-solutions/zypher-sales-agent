@@ -167,3 +167,26 @@ def test_page_budget_caps_total_text_and_shares_leftovers():
     shown = page_budget(pages, 10_000)
     assert sum(map(len, shown)) == 10_000 and len(shown[0]) == 100  # the short page keeps all its text
     assert len(shown[1]) == len(shown[2]) == 4_950  # its unused share went to the long pages
+
+
+# ---------- who we sell to: a kind of company, not a sector ----------
+
+def test_the_prompt_describes_the_kind_of_company_in_any_industry():
+    s = system_prompt(ICP)
+    assert "WHO WE SELL TO" in s and "ANY industry" in s and "KIND OF COMPANY" in s
+    for must in ("a registered company with a real office", "an office team beyond the owner",
+                 "formal paperwork", "too_small_or_informal", "freelancers"):
+        assert must in s, must
+    assert "lighting" not in s.lower()  # one past deployment is an example, never a sector in the prompt
+
+
+def test_a_freelancer_or_informal_business_is_disqualified_with_the_evidence():
+    report, _, _ = run(output(disqualify="too_small_or_informal",
+                              disqualify_evidence="Run by one person from a home studio; no team, no office address"))
+    assert report.disqualify_reason.startswith("too_small_or_informal: Run by one person")
+
+
+def test_walk_in_shops_and_one_person_businesses_are_listed_as_disqualifiers():
+    bad = " ".join(ICP.target["disqualifiers"]).lower()
+    assert "freelancer" in bad and "walk-in" in bad
+    assert ICP.target["qualifying_structure"]  # the research agent is told what a proper company looks like

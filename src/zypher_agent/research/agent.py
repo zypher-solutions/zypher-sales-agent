@@ -37,7 +37,9 @@ QUOTE_AIMED_AT_AI = re.compile(
     r"\binstructions?\b|system prompt|language model|\bchatgpt\b|\bclaude\b|\bassistant\b", re.IGNORECASE
 )
 
-Disqualify = Literal["none", "large_enterprise", "it_or_software_vendor", "not_a_real_business"]
+Disqualify = Literal[
+    "none", "large_enterprise", "it_or_software_vendor", "not_a_real_business", "too_small_or_informal"
+]
 
 
 class HypothesisOut(BaseModel):
@@ -75,6 +77,8 @@ def _norm(text: str) -> str:
 
 def system_prompt(icp: Icp) -> str:
     good = "\n".join(f"- {s}" for s in icp.target["good_signals"])
+    structure = "\n".join(f"- {s}" for s in icp.target.get("qualifying_structure", []))
+    who = " ".join(str(icp.target["industry_policy"]).split())
     bad = "\n".join(f"- {s}" for s in icp.target["disqualifiers"])
     offer = first_touch_offer(icp)
     focus = " ".join(offer.evidence_focus.split())  # the YAML text may wrap over several lines
@@ -97,8 +101,15 @@ WHAT TO PRODUCE
   * Prefer quotes that contain a concrete number, name or process step: they let the email show we read their site.
   * Phrase each hypothesis as a question or a likelihood, never as a fact about their business.
   * If nothing on the pages supports a workflow guess, return an empty list. Do not invent evidence.
-- disqualify: 'none' unless the company clearly matches a disqualifier below, with one sentence of evidence.
+- disqualify: 'none' unless the company clearly matches a disqualifier below, with one sentence of evidence from the pages.
 - summary: two sentences on what the company does.
+
+WHO WE SELL TO
+{who}
+Evidence the company is the kind we serve:
+{structure}
+Use 'too_small_or_informal' when the pages show a freelancer, a one-person or informal operation, or no office team
+and no formal paperwork at all. Judge only from the pages: when they say too little to tell, do NOT disqualify.
 
 GOOD SIGNALS (what makes a workflow hypothesis credible)
 {good}

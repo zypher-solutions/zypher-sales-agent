@@ -1,5 +1,5 @@
 # Ideal Customer Profile and offer (v2). The agents read this file.
-version: 5
+version: 6
 
 company:
   name: Zypher Software Solutions LLP
@@ -27,16 +27,23 @@ target:
   company_size: "10-200 employees"
   markets: [UAE, India, Qatar, US]
   industry_policy: >
-    Established B2B SMEs that sell on quotes, projects or accounts, in any sector. Target by
-    PAIN, not by industry: companies that run on spreadsheets, WhatsApp, email and manual data
-    entry, where staff spend time chasing clients and updating records by hand. Typical fits:
-    lighting suppliers and contractors, MEP and electrical contractors, interior fit-out,
-    building materials and trading companies, facility management, real estate and property
-    agencies, recruitment and professional services, training institutes and distributors.
-    The research agent must find evidence of a specific workflow pain for each lead. Every
-    lead is tagged with its industry so we can measure which sectors reply and book calls,
-    then double down on those. A company that sells hardware is fine: we automate its
-    OFFICE work, never its products.
+    ANY industry. We do not target a sector, we target a KIND OF COMPANY: an established business
+    with a proper office and an office team (sales, accounts, procurement, admin, project or
+    operations coordinators) whose day-to-day flow is real but messy: quotations, enquiries,
+    orders, contracts and invoices handled through spreadsheets, WhatsApp, email and retyping.
+    They already want a proper flow; they just have not built it. We automate the OFFICE work
+    of the company, never its products. A company that sells hardware or runs sites is fine.
+    We are NOT for freelancers, one-person operations, informal or social-media-only businesses,
+    shops serving walk-in customers, or anyone without a proper office and formal paperwork.
+    The research agent must find evidence of a specific workflow pain for each lead. Every lead
+    is tagged with its industry so we can measure which sectors reply and book calls.
+  # Our one finished deployment (a lighting supplier: one-click quotations in its own template from a drawing)
+  # is an EXAMPLE of the kind of company, not a sector. Facts about it are not stated to the model until confirmed.
+  qualifying_structure:     # evidence that the company is the KIND we serve; the research agent looks for it
+    - a registered company with a real office (address, trade licence, several branches or departments)
+    - an office team beyond the owner (sales, accounts, procurement, admin, HR, project or operations coordinators)
+    - formal paperwork such as quotations, proposals, contracts, purchase orders, invoices and tenders
+    - roughly 10 to 200 staff (a team or about page, a careers page, many named people or roles)
   good_signals:
     - quotes or proposals are sent and then chased by hand (no tracking or automatic follow-up)
     - clients get project, order or delivery status updates by phone, WhatsApp or email
@@ -51,6 +58,8 @@ target:
     - large enterprise or listed company
     - IT/automation/software vendor or agency
     - no verifiable website or business email
+    - freelancer, one-person business, or an informal or social-media-only business with no office team
+    - shop or clinic serving walk-in customers only, with no business-to-business or project side
 
 buyer_personas:
   - owner / founder / managing director
