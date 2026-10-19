@@ -21,6 +21,9 @@ Open one terminal in the project folder and run `.\zypher.ps1 start`. Leave the 
 | 4 | `.\zypher.ps1 bot` (leave the window open) | Listens for your taps on the Telegram cards | free |
 | 5 | Telegram | Review each card, then tap Approve, Suggest changes or Reject | |
 
+## What to search for
+Search by how a business sells, not by product. Companies that send quotes and run projects have the most manual follow-up work. Good searches for Dubai: "electrical contracting company", "interior fit out company", "MEP contractor", "lighting supplier wholesale", "building materials supplier", "facility management company", "real estate agency", "recruitment agency". Weak: "lighting company" or other shop-style words, which mostly return retail stores. Use `--preview` to look at the results for pennies before importing.
+
 ## Reading a Telegram card
 - Everything between **THE EMAIL** and **END OF EMAIL** is exactly what the lead would receive (subject, greeting, body, your signature, opt-out line, address).
 - Below that, **ONLY FOR YOU, NOT SENT** shows the evidence: the exact sentences from their website that the email is based on. Click the link to check any claim.

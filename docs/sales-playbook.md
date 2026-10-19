@@ -2,6 +2,8 @@
 
 How the agent sells, and why. Sources: two podcast interviews with the sales trainer Saad (youtu.be/M2OYgUoQwyk, youtu.be/BZv_N4I_THQ; live sales and cold-calling methods, summarized in our own words) and the cold-email research notes we loaded. His methods are for phone and live calls, so each idea below says how it maps to written email, and where we deliberately differ.
 
+> **Offer, as of icp.yaml v5:** software automations for office work (client and enquiry follow-ups, CRM or Notion updates without retyping, quotes and enquiries turned into tracked tasks, reminders and reports), connected to the tools the client already uses. Software only. Best fit: B2B SMEs that sell on quotes and projects.
+
 ## 1. Sales is three parts, and the offer comes first
 Offer, distribution, and the sales conversation. A great salesperson cannot rescue a vague offer. For us that means the offer must be fixed before the emails are tuned.
 

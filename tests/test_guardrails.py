@@ -261,3 +261,18 @@ def test_special_dashes_and_hyphens_are_rejected_so_the_model_rewrites():
     assert "typography" in rules(make(body=GOOD_BODY.replace("No call needed.", "No call needed \u2014 really.")))
     assert "typography" in rules(make(subject="Quotes \u2013 fast"))
     assert "typography" not in rules()  # a normal hyphen is fine
+
+
+def test_hardware_and_robotics_wording_is_rejected_because_we_sell_software_only():
+    for word in ("robots", "robotic arms", "hardware", "internet of things"):
+        assert "banned_phrase" in rules(make(body=GOOD_BODY.replace("No call needed.", f"We also do {word}. No call needed."))), word
+    assert "banned_phrase" not in rules(make(body=GOOD_BODY.replace("quote", "patriotic quote")))  # no false hit inside other words
+
+
+def test_the_offer_describes_software_automation_not_machines():
+    from zypher_agent.config import first_touch_offer
+    offer = first_touch_offer(ICP)
+    text = offer.value_statement.lower() + ICP.company["positioning"].lower()
+    for must in ("follow", "notion", "crm", "software only"):
+        assert must in text, must
+    assert "client" in offer.evidence_focus.lower() and "notion" in offer.evidence_focus.lower()

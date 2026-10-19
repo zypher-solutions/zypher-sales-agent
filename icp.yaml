@@ -1,13 +1,14 @@
 # Ideal Customer Profile and offer (v2). The agents read this file.
-version: 4
+version: 5
 
 company:
   name: Zypher Software Solutions LLP
   location: Kerala, India
   positioning: >
-    We study how a small or mid-sized business actually runs, find the manual,
-    repetitive workflows, and automate them (CRM/Slack/Notion/WhatsApp/ERP
-    integrations, AI agents, internal tools).
+    We build SOFTWARE automations for small and mid-sized businesses: we find the
+    repetitive office work (chasing clients and enquiries, updating Notion or the CRM by hand,
+    copying data between email, WhatsApp and spreadsheets, reports) and make it run on its own
+    with integrations and AI agents. Software only: no robots, machinery or hardware.
   primary_service: business-process automation
   secondary_services: [websites, mobile apps, CRM/ERP/POS/custom software, branding and rebranding]
 
@@ -26,12 +27,21 @@ target:
   company_size: "10-200 employees"
   markets: [UAE, India, Qatar, US]
   industry_policy: >
-    Any SME in any sector. Target by PAIN, not by industry: companies that run
-    on spreadsheets, WhatsApp, email and manual data entry. The research agent
-    must find evidence of a specific workflow pain for each lead.
-    Every lead is tagged with its industry so we can measure which sectors
-    reply and book calls, then double down on those.
+    Established B2B SMEs that sell on quotes, projects or accounts, in any sector. Target by
+    PAIN, not by industry: companies that run on spreadsheets, WhatsApp, email and manual data
+    entry, where staff spend time chasing clients and updating records by hand. Typical fits:
+    lighting suppliers and contractors, MEP and electrical contractors, interior fit-out,
+    building materials and trading companies, facility management, real estate and property
+    agencies, recruitment and professional services, training institutes and distributors.
+    The research agent must find evidence of a specific workflow pain for each lead. Every
+    lead is tagged with its industry so we can measure which sectors reply and book calls,
+    then double down on those. A company that sells hardware is fine: we automate its
+    OFFICE work, never its products.
   good_signals:
+    - quotes or proposals are sent and then chased by hand (no tracking or automatic follow-up)
+    - clients get project, order or delivery status updates by phone, WhatsApp or email
+    - enquiries come through a form, email or WhatsApp and are copied into Excel, a CRM or Notion
+    - a sales or project team that reports upward through spreadsheets
     - quotes or proposals are built manually (Excel/Word/PDF)
     - orders, leads or enquiries come through WhatsApp/email/forms with no CRM
     - hiring for admin, operations, coordinator or data-entry roles
@@ -82,7 +92,7 @@ messaging_rules:
   email_word_range: [50, 80]
   tone: plain, human, specific, no hype
   must_include: [one specific observation about THEIR workflow, one low-friction CTA, opt-out line]
-  never_say: ["I hope this email finds you well", "revolutionary", "game-changing", "guarantee", "boost your digital presence"]
+  never_say: ["I hope this email finds you well", "revolutionary", "game-changing", "guarantee", "boost your digital presence", "robot", "hardware", "internet of things"]
   never_claim: [clients, revenue, time-saved numbers or results not in proof_points]
   hypothesis_style: "phrase as a question or likelihood, not as a fact about their business"
 
@@ -92,13 +102,20 @@ offers:
   - id: automation
     name: Business-process automation
     first_touch: true
-    evidence_focus: manual, repetitive workflows
+    evidence_focus: >
+      manual client handling: following up on quotes and enquiries, keeping the CRM or Notion
+      updated by hand, project or order status updates, reports, and data copied by hand between
+      email, WhatsApp, spreadsheets and other tools
     value_statement: >
-      We replace repetitive manual work (retyping enquiries, chasing follow-ups, building quotes,
-      copying data between tools) with automations and AI agents connected to the tools you already
-      use, so your team stops doing it by hand and you do not need to hire for it.
+      We build software automations that take repetitive office work off your team: following up
+      with clients and enquiries automatically, keeping your CRM or Notion up to date without
+      retyping, turning enquiries and quotes into tracked tasks, and sending reminders and
+      reports. They connect to the tools you already use (email, WhatsApp, Excel, Notion, your
+      CRM) and run on their own, so you do not need to hire for it. This is software only:
+      never mention robots, machinery, sensors or hardware. You may name email, WhatsApp, Excel, Notion or a
+      CRM as tools they already use, but never offer to build any of them.
   - id: software
-    name: Websites, apps and custom software (CRM, ERP, POS)
+    name: Websites, apps and custom software
     first_touch: false
     value_statement: We build the websites, apps and CRM/ERP systems a business needs.
     avoid_patterns:
