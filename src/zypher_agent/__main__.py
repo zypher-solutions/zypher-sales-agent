@@ -159,7 +159,7 @@ def _attach_explainer(settings: Settings, service, repo, icp, footer) -> None:
     service.approval_gate = lambda lead: helper.held_reason(lead.email)
 
 
-def _run_bot_in_background(settings: Settings) -> None:
+def _run_bot_in_background(settings: Settings, alert, beat) -> None:
     """The Telegram listener on its own thread and its own database connection (a connection is not thread-safe)."""
     import threading
 
@@ -171,7 +171,31 @@ def _run_bot_in_background(settings: Settings) -> None:
         tg.set_commands()  # keep the "/" menu in Telegram in step with what the bot can do
     except Exception as e:  # noqa: BLE001 - a menu that fails to update must not stop the bot
         print(f"(could not update the Telegram command menu: {type(e).__name__})")
-    threading.Thread(target=poll_forever, args=(tg, service), daemon=True, name="telegram").start()
+    threading.Thread(target=poll_forever, args=(tg, service), kwargs={"on_conflict": alert, "beat": beat},
+                     daemon=True, name="telegram").start()
+
+
+def _host_label(settings: Settings) -> str:
+    import socket
+
+    return settings.agent_host_label or socket.gethostname()
+
+
+def _hold_instance_lock(settings: Settings, roles: tuple[str, ...], alert, beat):
+    """Wait until no other copy runs (see instance.py), then return the held lock."""
+    import psycopg
+    from psycopg.rows import dict_row
+
+    from zypher_agent.instance import InstanceLock, wait_for_lock
+
+    dsn = settings.database_url.get_secret_value()
+    connect = lambda: psycopg.connect(  # same keepalives as the repository: an idle lock connection must not drop
+        dsn, autocommit=True, row_factory=dict_row, prepare_threshold=None,
+        keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+    )
+    lock = InstanceLock(connect, settings.tenant_id, _host_label(settings), roles)
+    wait_for_lock(lock, notify_once=alert, say=lambda line: print(line, flush=True), beat=beat)
+    return lock
 
 
 def _inbox_processor(settings: Settings, repo, alert):
@@ -243,6 +267,34 @@ def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
         except Exception as e:  # noqa: BLE001 - an alert that cannot be delivered must not stop the worker
             print(f"(could not send Telegram alert: {type(e).__name__})")
 
+    from zypher_agent.health import (
+        Heartbeat,
+        HealthPinger,
+        crash_loop_message,
+        record_start,
+        start_watchdog,
+    )
+    from zypher_agent.instance import LockLost
+    from zypher_agent.schedule import ScheduleError, parse_schedule
+
+    try:  # a typo in the schedule settings must stop us now, not at 08:00 tomorrow
+        sched = parse_schedule(settings.draft_schedule_enabled, settings.draft_daily_limit, settings.draft_time,
+                               settings.draft_days, settings.draft_timezone)
+    except ScheduleError as e:
+        sys.exit(str(e))
+    hb = Heartbeat(settings.heartbeat_dir)
+    beat_all = lambda: (hb.beat("main"), hb.beat("telegram"))
+    lock = None
+    if loop:  # one copy only: two would both poll Telegram and both send (see instance.py)
+        if hb.enabled:
+            record_start(settings.heartbeat_dir)
+            msg = crash_loop_message(settings.heartbeat_dir, None, _host_label(settings))
+            if msg:
+                alert(msg)
+            start_watchdog(settings.heartbeat_dir, on_stall=lambda text: alert(f"Watchdog restarted the agent: {text}"))
+        lock = _hold_instance_lock(settings, ("poll", "send") if with_bot else ("send",), alert, beat_all)
+    pinger = HealthPinger(settings.healthchecks_url.get_secret_value() if settings.healthchecks_url else None)
+
     from zypher_agent.sender.sentcopy import IMAPSentSaver
 
     worker = SendWorker(
@@ -256,14 +308,27 @@ def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
             followups = _live(settings)[0]
         except SystemExit:
             print("(follow-up drafting is off: the model, database or Telegram settings are incomplete)")
-    cycle = 0
+    cycle, drafted_on = 0, None
     if with_bot:
-        _run_bot_in_background(settings)
+        _run_bot_in_background(settings, alert, beat=lambda: hb.beat("telegram"))
         print("Everything is running: Telegram buttons, sending, inbox reading and follow-ups. Ctrl+C stops it all.")
+    else:
+        hb.beat("telegram")  # no listener in this mode: keep its heartbeat from counting as a hang
     if settings.send_allowlist:
         print(f"TEST MODE: only these recipients can receive email: {settings.send_allowlist}")
+    if sched.enabled and followups is not None:
+        print(f"Daily drafting: {sched.limit} leads at {sched.at:%H:%M} {settings.draft_timezone} on {settings.draft_days}.")
     while True:
         stamp = time.strftime("%H:%M:%S")
+        hb.beat("main")
+        if not with_bot:
+            hb.beat("telegram")
+        if lock is not None:
+            try:
+                lock.ensure_held()
+            except LockLost as e:
+                print(f"[{stamp}] {e}. Stopping this copy.")
+                return 1
         try:  # read bounces, replies and opt-outs BEFORE sending anything
             r = inbox.run_once()
             if r.processed:
@@ -274,6 +339,8 @@ def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
                 return 1
             time.sleep(60)
             continue
+        if followups is not None and sched.enabled:
+            drafted_on = _maybe_scheduled_draft(followups, repo, sched, stamp, lambda: hb.beat("main"), drafted_on)
         if followups is not None and cycle % 30 == 0:  # about every 30 minutes
             try:
                 fs = followups.run_followups(limit=5)
@@ -290,6 +357,7 @@ def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
                 print(f"[{stamp}] reply-rate check failed ({type(e).__name__})")
         cycle += 1
         s = worker.run_once()
+        pinger.maybe_ping()  # only after a pass that reached the database
         if s.paused:
             print(f"[{stamp}] sending is PAUSED: {s.paused}")
         else:
@@ -303,6 +371,50 @@ def _send(settings: Settings, loop: bool, with_bot: bool = False) -> int:
         except KeyboardInterrupt:
             print("Worker stopped.")
             return 0
+
+
+def _maybe_scheduled_draft(pipeline, repo, sched, stamp: str, beat, known_last):
+    """Draft today's leads if the schedule says so; returns the last run's date for the next call to remember.
+    The run is logged BEFORE drafting, so a crash part-way through never makes a restarted copy draft the same day
+    again (missing one day is cheaper than a loop of model calls)."""
+    from datetime import UTC, datetime
+
+    from zypher_agent.schedule import EVENT, draft_due, last_scheduled_draft, local_date
+
+    now = datetime.now(UTC)
+    if not draft_due(now, known_last, sched):  # cheap check first; the database is read only when it may be due
+        return known_last
+    last = last_scheduled_draft(repo, sched, now)  # another copy may have run today (laptop, then server)
+    if not draft_due(now, last, sched):
+        return last
+    today = local_date(now, sched)
+    repo.log_event(EVENT, payload={"local_date": today, "limit": sched.limit})
+    print(f"[{stamp}] scheduled drafting: up to {sched.limit} leads", flush=True)
+    say = pipeline.progress
+    pipeline.progress = lambda line: (beat(), say(line) if say else None)  # a long run must not look like a hang
+    try:
+        _print_summary(pipeline.run(sched.limit))
+    except Exception as e:  # noqa: BLE001 - drafting trouble must not stop sending; tomorrow tries again
+        from zypher_agent.health import mask_secrets
+
+        print(f"[{stamp}] scheduled drafting failed ({mask_secrets(f'{type(e).__name__}: {e}')})")
+    finally:
+        pipeline.progress = say
+    from datetime import date
+
+    return date.fromisoformat(today)
+
+
+def _health(settings: Settings) -> int:
+    """For Docker's HEALTHCHECK: 0 when every loop has beaten recently. Reads files only (no database, no network)."""
+    from zypher_agent.health import stale_parts
+
+    if not settings.heartbeat_dir:
+        print("Heartbeat is off (HEARTBEAT_DIR is not set); nothing to check.")
+        return 0
+    problems = stale_parts(settings.heartbeat_dir)
+    print("healthy" if not problems else "UNHEALTHY: " + "; ".join(problems))
+    return 1 if problems else 0
 
 
 def _preflight(settings: Settings) -> int:
@@ -352,6 +464,7 @@ def main(argv: list[str] | None = None) -> int:
     tm = sub.add_parser("testmail", help="send ONE plain test email to an address you own, to check SPF/DKIM headers")
     tm.add_argument("--to", required=True, help="your own other mailbox, e.g. a Gmail address")
     sub.add_parser("preflight", help="check DNS records and mailbox logins before the first real send (sends nothing)")
+    sub.add_parser("health", help="exit 0 if the running agent's loops are alive (Docker's health check)")
     src = sub.add_parser("source", help="find companies on Google Maps (Apify) and add them as new leads")
     src.add_argument("--query", action="append", required=True, help='e.g. "logistics company" (repeat for more)')
     src.add_argument("--location", required=True, help='e.g. "Dubai, United Arab Emirates"')
@@ -403,8 +516,17 @@ def main(argv: list[str] | None = None) -> int:
         return _inbox(settings)
     if args.cmd == "testmail":
         return _testmail(settings, args.to)
+    if args.cmd == "health":
+        return _health(settings)
     if args.cmd in ("send", "worker", "start"):
-        return _send(settings, loop=args.cmd != "send", with_bot=args.cmd == "start")
+        try:
+            return _send(settings, loop=args.cmd != "send", with_bot=args.cmd == "start")
+        except Exception as e:
+            if settings.heartbeat_dir:  # the next start reports it if the agent keeps crashing
+                from zypher_agent.health import write_last_error
+
+                write_last_error(settings.heartbeat_dir, e)
+            raise
     pipeline, service, tg, repo = _live(settings)
     _attach_explainer(settings, service, repo, pipeline.icp, pipeline.footer)
     if args.cmd == "refresh":
@@ -425,9 +547,18 @@ def main(argv: list[str] | None = None) -> int:
             tg.set_commands()  # keep the "/" menu in Telegram in step with what the bot can do
         except Exception as e:  # noqa: BLE001 - a menu that fails to update must not stop the bot
             print(f"(could not update the Telegram command menu: {type(e).__name__})")
+        chat = settings.telegram_approval_chat_id or settings.telegram_allowed_user_ids[0]
+
+        def alert(text: str) -> None:
+            try:
+                tg.send(chat, "🔔 " + text)
+            except Exception as e:  # noqa: BLE001
+                print(f"(could not send Telegram alert: {type(e).__name__})")
+
         print("Listening for Telegram taps. Ctrl+C to stop.")
         try:
-            poll_forever(tg, service)
+            _hold_instance_lock(settings, ("poll",), alert, beat=lambda: None)
+            poll_forever(tg, service, on_conflict=alert)
         except KeyboardInterrupt:
             pass
     return 0

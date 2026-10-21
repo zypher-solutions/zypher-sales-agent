@@ -106,6 +106,26 @@ def test_poll_forever_survives_network_errors_and_backs_off():
     assert sleeps == [5] and service.repo.events[0][0][0] == "telegram_error"
 
 
+def test_two_pollers_are_reported_once_and_listening_continues():
+    # Telegram answers 409 when a second copy (laptop and server) polls the same bot: taps go to either at random.
+    calls = {"n": 0}
+
+    def handler(req):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            return httpx.Response(409, json={"ok": False, "error_code": 409, "description":
+                                             "Conflict: terminated by other getUpdates request"})
+        raise KeyboardInterrupt
+
+    alerts, beats, service = [], [], FakeService()
+    with pytest.raises(KeyboardInterrupt):
+        poll_forever(client(handler), service, sleep=lambda s: None, on_conflict=alerts.append,
+                     beat=lambda: beats.append(1))
+    assert len(alerts) == 1 and "another copy" in alerts[0].lower()
+    assert [e[0][0] for e in service.repo.events] == ["telegram_conflict"] * 3
+    assert len(beats) >= 3  # the heartbeat means "the loop is alive", even while Telegram refuses us
+
+
 def test_the_slash_menu_lists_every_command_the_bot_handles():
     import json
     import re

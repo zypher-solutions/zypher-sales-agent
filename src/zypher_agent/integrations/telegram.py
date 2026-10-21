@@ -98,14 +98,27 @@ def poll_once(tg: TelegramClient, service: ApprovalService, offset: int | None, 
     return offset
 
 
-def poll_forever(tg: TelegramClient, service: ApprovalService, sleep: Callable[[float], None] = time.sleep) -> None:
-    offset = None
+def poll_forever(
+    tg: TelegramClient, service: ApprovalService, sleep: Callable[[float], None] = time.sleep,
+    on_conflict: Callable[[str], None] | None = None, beat: Callable[[], None] | None = None,
+) -> None:
+    """Listen until the process ends. `beat` is called every loop (the watchdog's "still alive"); `on_conflict`
+    once, the first time Telegram says another copy of the bot is polling too."""
+    offset, warned = None, False
     while True:
+        if beat is not None:
+            beat()
         try:
             offset = poll_once(tg, service, offset)
         except Exception as e:  # network, Telegram or database trouble: back off and keep listening
+            conflict = isinstance(e, TelegramError) and "conflict" in str(e).lower()
             try:
-                service.repo.log_event("telegram_error", payload={"error": f"{type(e).__name__}: {e}"})
+                service.repo.log_event("telegram_conflict" if conflict else "telegram_error",
+                                       payload={"error": f"{type(e).__name__}: {e}"})
             except Exception:
                 pass  # the database itself may be what is down
+            if conflict and not warned and on_conflict is not None:
+                warned = True
+                on_conflict("Another copy of the bot is polling Telegram (laptop and server at once?). "
+                            "Button taps may go to either copy. Stop one of them.")
             sleep(5)
