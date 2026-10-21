@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol
-from urllib.parse import urldefrag, urljoin, urlparse
+from urllib.parse import unquote, urldefrag, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -102,7 +102,7 @@ def extract_page(html: str, base_url: str) -> tuple[str, list[str], list[tuple[s
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         if href.lower().startswith("mailto:"):
-            emails.append(href[7:].split("?")[0])
+            emails.append(unquote(href[7:].split("?")[0]).strip())  # "%20name@x" is an encoded space, not part of it
         elif not href.lower().startswith(("tel:", "javascript:")):
             links.append((urldefrag(urljoin(base_url, href))[0], a.get_text(" ", strip=True)))
 

@@ -45,6 +45,13 @@ def test_extract_caps_text_length():
     assert len(text) <= MAX_TEXT_CHARS
 
 
+def test_mailto_links_are_url_decoded():
+    # A real site linked "mailto:%20online@..." (an encoded space); stored raw it became an undeliverable address.
+    html = '<a href="mailto:%20online@acme.com">mail</a><a href="MAILTO:sales%40acme.com?subject=Hi">x</a>'
+    _, emails, _ = extract_page(html, "https://acme.com")
+    assert clean_emails(emails, "acme.com") == ["online@acme.com", "sales@acme.com"]
+
+
 def test_clean_emails_filters_junk_and_prefers_own_domain():
     raw = ["x@gmail.com", "info@acme.com", "logo@2x.png", "a@sentry.io", "bad@@x", "INFO@acme.com", "me@example.com"]
     assert clean_emails(raw, "acme.com") == ["info@acme.com", "x@gmail.com"]
