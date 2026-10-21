@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     sender_timezone: str = "Asia/Kolkata"  # where "today" starts and ends for the daily cap
     daily_send_cap: int | None = None  # your own cap; can only lower the built-in warmup ramp, never raise it
 
+    # Daily drafting inside `start` (off by default: on the laptop you draft by hand). Lead finding costs money,
+    # so it is deliberately not schedulable.
+    draft_schedule_enabled: bool = False
+    draft_daily_limit: int = 5
+    draft_time: str = "08:00"  # local time in draft_timezone, 24-hour
+    draft_days: str = "mon,tue,wed,thu,fri"
+    draft_timezone: str = "Asia/Kolkata"
+
+    # Running unattended (Docker). Empty heartbeat_dir = no heartbeat files, no watchdog (the laptop default).
+    heartbeat_dir: str = ""
+    agent_host_label: str = ""  # shown when two copies meet; empty = this computer's name
+    healthchecks_url: SecretStr | None = None  # a Healthchecks.io ping URL; silence for 20 min emails you
+
     icp_path: Path = REPO_ROOT / "icp.yaml"
 
     @field_validator("telegram_allowed_user_ids", mode="before")
