@@ -1,0 +1,53 @@
+# The Sales Agent and its nightly backup. Same file on the laptop (Docker Desktop) and the server.
+#   docker compose up -d --build      build and start in the background (also after a code update)
+#   docker compose ps                 is it running, is it healthy
+#   docker compose logs -f sales-agent
+#   docker compose stop sales-agent   stop it (e.g. to run `zypher.ps1 start` on the laptop instead)
+# Laptop test without sending:  docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+# Later this moves into zypher-console/deploy/ with the other services (platform/hosting.md).
+
+services:
+  sales-agent:
+    build: .
+    image: zypher-sales-agent
+    env_file: .env                    # secrets are read when the container starts; they are never in the image
+    environment:
+      HEARTBEAT_DIR: /data
+      AGENT_HOST_LABEL: ${AGENT_HOST_LABEL:-docker}
+      TZ: Asia/Kolkata                # log times in IST (the sending rules use each lead's own time zone anyway)
+    volumes:
+      - agent-state:/data             # heartbeat files and the start log survive restarts
+    restart: unless-stopped           # restart after a crash and after a server reboot; not after `stop`
+    init: true                        # a tiny init process passes stop signals on and cleans up child processes
+    stop_grace_period: 30s
+    logging:                          # keep at most 5 x 10 MB of logs, so the disk never fills
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  backup:
+    build: deploy/backup
+    image: zypher-backup
+    environment:                      # only what the backup needs, not the whole .env
+      DATABASE_URL: ${DATABASE_URL}
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      HEALTHCHECKS_BACKUP_URL: ${HEALTHCHECKS_BACKUP_URL:-}
+      RCLONE_CONFIG_B2_TYPE: ${RCLONE_CONFIG_B2_TYPE:-b2}
+      RCLONE_CONFIG_B2_ACCOUNT: ${RCLONE_CONFIG_B2_ACCOUNT:-}
+      RCLONE_CONFIG_B2_KEY: ${RCLONE_CONFIG_B2_KEY:-}
+      BACKUP_AT: "02:30"
+      BACKUP_KEEP_DAYS: "14"
+      TZ: Asia/Kolkata
+    volumes:
+      - ./backups:/backups            # a plain folder next to this file, easy to copy off by hand
+    restart: unless-stopped
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  agent-state:

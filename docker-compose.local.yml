@@ -1,0 +1,9 @@
+# Laptop test overrides: never sends email and never drafts on its own, whatever .env says.
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build sales-agent
+# Stop `zypher.ps1 start` first, or this copy will (correctly) wait for it.
+services:
+  sales-agent:
+    environment:
+      SENDING_ENABLED: "false"
+      DRAFT_SCHEDULE_ENABLED: "false"
+      AGENT_HOST_LABEL: docker-desktop

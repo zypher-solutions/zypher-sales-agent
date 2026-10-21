@@ -13,3 +13,4 @@ docs/legacy/
 
 # model-eval drafts contain lead data
 eval_out/
+backups/
