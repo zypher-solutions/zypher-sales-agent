@@ -3,7 +3,7 @@
 An AI-assisted outbound sales system for **Zypher Software Solutions LLP**. It finds SME leads, researches each business, drafts personalized outreach around **business-process automation**, sends it through compliant channels, handles replies, and hands warm leads to a human.
 
 Owner: Muhammed Hasheem (CEO / technical lead)
-Status: Phase 1 code complete (research, drafting, guardrails, Telegram approval). Replaces the n8n workflow "Cold Outreach - Phase 1".
+Status: Phases 1 and 2 built (research, drafting, guardrails, Telegram approval, sending, inbox, follow-ups, stats); live sending has started (2 leads emailed by 2026-10-21, staged with an allowlist). Now moving to 24/7 hosting in Docker on the Oracle free server (docs/plans/step1-server.md). Replaces the n8n workflow "Cold Outreach - Phase 1".
 
 **Product direction:** this is built as a standalone, sellable sales-automation product for SMEs (hotels, restaurants, agencies, clinics, etc.). Zypher is "client zero". See section 10.
 
@@ -137,6 +137,7 @@ zypher-sales-agent/
 | 0 | Plan, schema, ICP, import existing sheet into Postgres (this repo's current state) |
 | 1 | Research agent + email drafting + Telegram approval (parity with n8n, better quality) |
 | 2 | Sending infrastructure: sending domain, warmup, queue, rate limits, suppression, follow-up sequences |
+| 2.5 | Runs unattended: Docker on the Oracle free ARM server, daily drafting schedule, one-copy lock, health checks, nightly backups (Step 1 of ../START_HERE.md) |
 | 3 | Reply classification, Notion CRM + Slack handoff, metrics dashboard |
 | 4 | WhatsApp Business API + LinkedIn assist; staged autonomy promotion |
 | 5 | Voice agent, A/B testing, lead scoring from outcomes |
@@ -149,7 +150,7 @@ zypher-sales-agent/
 4. Notion CRM database structure (needs a shared example).
 5. Case studies / proof points we may legally cite in emails.
 6. Pricing and offer: free workflow audit? fixed-price pilot?
-7. Hosting for the agent (VPS, Railway, Fly.io).
+7. ~~Hosting for the agent~~ Decided 2026-10-21: Docker on the Oracle Cloud free ARM server now, DigitalOcean when a paying client depends on it (../platform/hosting.md).
 
 ## 9. Setup
 
@@ -169,6 +170,17 @@ python -m zypher_agent bot                    # listen for Approve / Suggest cha
 ```
 
 To run the Postgres contract tests, point `TEST_DATABASE_URL` at a throwaway database (they delete rows where `source = 'test'`).
+
+Docker (same image on the laptop and the arm64 server; server guide: docs/runbooks/server-setup.md):
+
+```bash
+docker compose up -d --build                  # agent + nightly backup, restarts by itself
+docker compose ps                             # running? healthy?
+docker compose logs -f sales-agent
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build sales-agent   # laptop test: never sends
+```
+
+Only one copy of `start` runs at a time (a database lock): never expect the laptop and the server to share the work.
 
 ## 10. Security notes
 
@@ -235,7 +247,7 @@ Secrets go only in `.env` (local) or the host's secret store. Never paste them i
 | Mailbox(es) on that domain | Google Workspace or similar; app password or SMTP credentials | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SENDER_EMAIL` |
 | Sender identity | Name, registered postal address of the LLP, opt-out wording | `SENDER_NAME`, `SENDER_POSTAL_ADDRESS`, `OPT_OUT_LINE` |
 | Public unsubscribe URL | A small hosted endpoint we build; needs a host (see below) | `UNSUBSCRIBE_BASE_URL` |
-| Hosting | VPS / Railway / Fly.io for the worker and API | n/a |
+| Hosting | Oracle Cloud free ARM server, Docker Compose (decided 2026-10-21) | n/a |
 
 ### Required for Phase 3+ (optional until then)
 | Item | Env var |

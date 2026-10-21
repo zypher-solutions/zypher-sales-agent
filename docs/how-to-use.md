@@ -1,7 +1,7 @@
 # How to use the sales agent (current version)
 
 You never need Claude to run this day to day. Open a terminal in the project folder and use `.\zypher.ps1`.
-Phase 2 (sending, follow-ups, bounces, stats) is built. Not built yet: writing replies for you, CRM or Slack handoff, LinkedIn and WhatsApp, running on a server so it works with your PC off, and counting meetings booked.
+Phase 2 (sending, follow-ups, bounces, stats) is built, and the agent can now run on a server in Docker (see "Running on the server" below). Not built yet: writing replies for you, CRM handoff, LinkedIn and WhatsApp, and counting meetings booked.
 
 ## One-time setup (already done on this PC)
 1. `.env` holds your keys (Groq, Apify, Telegram, database) and your sender details. Never share or commit it.
@@ -85,10 +85,38 @@ Mail that has nothing to do with our emails is never stored, logged or shown. `.
 - `.\zypher.ps1 refresh` rewrites every draft still waiting with the latest rules (use after changing wording rules).
 - `.\zypher.ps1 demo` runs everything on fake data, free, with no keys. `.\zypher.ps1 test` runs the self-checks.
 
+## Running on the server
+Once the server is set up (docs/runbooks/server-setup.md), the agent runs there all the time, in Docker, and you do not open a terminal for it. Telegram works exactly as before.
+
+**What it does by itself**
+- Everything `start` does: Telegram buttons, sending in each lead's business hours, inbox reading, follow-ups.
+- **Drafts new leads every weekday at 08:00 IST** (`DRAFT_DAILY_LIMIT`, `DRAFT_TIME`, `DRAFT_DAYS` in the server's `.env`). The cards arrive in Telegram as usual. If the server was down at 08:00, it drafts when it comes back that same day, never a missed day later.
+- **Does NOT find new leads.** That costs Apify credit, so it only runs when you ask: `.\zypher.ps1 find ...` on the laptop still works while the server runs (it only adds leads to the database).
+- Restarts itself after a crash, a hang or a server reboot. If it keeps crashing you get one Telegram message an hour about it.
+- Backs up the database every night at 02:30 IST, keeping 14 days.
+- Tells Healthchecks.io it is alive every 5 minutes. If it goes quiet for 20 minutes (server down, anything), Healthchecks emails you.
+
+**Only one copy at a time.** The laptop and the server must never both run `start`: Telegram taps would go to either one at random. The agent enforces this. A second copy prints "Another copy of the agent is already running… waiting" (and tells you once in Telegram) and does nothing until the first one stops. So on the laptop, use `status`, `stats`, `find` and `draft` freely; do not use `start` while the server runs.
+
+**Going back to the laptop** (if the server has a problem): on the server run `docker compose stop sales-agent`, then on the laptop `.\zypher.ps1 start`. Everything is in the database, so nothing is lost. If the server is simply gone, the laptop copy takes over by itself within a couple of minutes.
+
+**Useful server commands** (in the project folder on the server, `/opt/zypher/zypher-sales-agent`)
+
+| Command | What it does |
+|---|---|
+| `docker compose ps` | Is it running, and `healthy`? |
+| `docker compose logs -f sales-agent` | Watch it live (Ctrl+C stops watching, not the agent) |
+| `docker compose logs --tail 100 sales-agent` | The last 100 lines |
+| `git pull && docker compose up -d --build` | Install a code update |
+| `docker compose stop sales-agent` / `start sales-agent` | Pause / resume the whole agent |
+| `docker compose exec sales-agent python -m zypher_agent source --query "trading company" --location "Dubai, United Arab Emirates" --max 20` | Find leads from the server (costs Apify credit) |
+| `ls -lh backups/` | The nightly backups |
+
 ## If something looks wrong
+- Telegram says "Another copy of the agent is already running": the laptop and the server are both trying to run. Stop the one you do not want (see "Running on the server").
 - "No usable email" leads are parked as `nurture`: the site shows no public address we trust. Call or use LinkedIn by hand.
 - A card says FAILED checks: the evidence on their site was too thin for a specific email. Skip it, or use Suggest changes with a detail you know.
-- Telegram buttons do nothing: the bot window is closed. Run `.\zypher.ps1 bot` again.
+- Telegram buttons do nothing: nothing is running. On the server: `docker compose ps`; on the laptop: `.\zypher.ps1 start`.
 - Apify "not enough credit" (HTTP 402): add credit or wait for the monthly reset.
 - Model "rate limit": the free model allows about one lead a minute. The agent waits or switches to a backup model by itself.
 

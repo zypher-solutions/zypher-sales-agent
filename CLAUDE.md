@@ -40,7 +40,9 @@ An AI outbound sales agent. Built first for **Zypher Software Solutions LLP** (K
 - Any reply that is not a clear negative goes to a human.
 
 ## Commands (Windows, PowerShell)
-- Day-to-day launcher for the owner: `.\zypher.ps1 start|status|find|draft|stats|preflight|test|demo` (`start` runs the bot, sender, inbox and follow-ups together); guide in docs/how-to-use.md (keep both in sync with the CLI)
+- Day-to-day launcher for the owner: `.\zypher.ps1 start|status|find|draft|stats|preflight|health|test|demo` (`start` runs the bot, sender, inbox and follow-ups together); guide in docs/how-to-use.md (keep both in sync with the CLI)
+- Docker: `docker compose up -d --build` (agent + backup); laptop test that never sends: `docker compose -f docker-compose.yml -f docker-compose.local.yml up --build sales-agent`. Server guide: docs/runbooks/server-setup.md. Only one copy of `start` runs per tenant (advisory lock, src/zypher_agent/instance.py); a second copy waits.
+- Git Bash on this PC rewrites `/paths` passed to `docker exec`: prefix such commands with `MSYS_NO_PATHCONV=1`.
 - Tests: `.\.venv\Scripts\python.exe -m pytest -q` (the global Python lacks the package; always use the venv)
 - Lint: `.\.venv\Scripts\python.exe -m ruff check .`
 - Dry run (no keys, no cost): `.\.venv\Scripts\python.exe -m zypher_agent run --dry-run`
@@ -64,4 +66,4 @@ Tests pass, lint clean, no secrets or lead data in the diff, no Zypher-specific 
 ## Current phase
 **New session? Read docs/next-steps.md first** (state, open decisions, what to build next).
 
-Phase 1 complete. Phase 2 in progress (plan: docs/phase2-plan.md): send policy, transport, preflight and worker are built and tested with a fake mail server; real sending is OFF until the owner adds MAIL_PASSWORD, preflight passes and SENDING_ENABLED=true. Inbox handling (bounces, replies, opt-outs, stop-loss) and follow-up scheduling are built. Statistics (`stats`, `/stats`, low reply-rate alert) are built. Research rejects companies without a verified quote proving an office team or business-to-business side. Remaining: staged live rollout (allowlist test, then 5 real leads a day), then Phase 3 (reply drafting, CRM and Slack handoff). Roadmap in README.md.
+Phases 1 and 2 are built; live sending is staged (allowlist, 2 leads emailed). **Step 1 of ../START_HERE.md in progress: run 24/7 in Docker on the Oracle free ARM server** (plan: docs/plans/step1-server.md). Built and tested locally: daily drafting schedule inside `start` (schedule.py), one-copy lock (instance.py), heartbeats, watchdog, crash-loop alert and Healthchecks ping (health.py), Dockerfile, docker-compose.yml, nightly backup (deploy/backup/). Remaining: server setup (docs/runbooks/server-setup.md), 7 days unattended, then Step 2 (Zypher Console). Telegram approvals are unchanged until the Console replaces them. Then Phase 3 (reply drafting). Roadmap in README.md.

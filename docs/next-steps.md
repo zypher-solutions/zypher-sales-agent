@@ -1,13 +1,24 @@
 # Where we stopped, and what is next
 
-Read this first in a new chat, then CLAUDE.md and docs/decisions.md. Written 2026-10-20.
+Read this first in a new chat, then CLAUDE.md and docs/decisions.md. Updated 2026-10-21.
 
 ## State
-- Phase 1 and Phase 2 are built and tested (460 tests on a real Postgres). `.\zypher.ps1 start` runs Telegram buttons,
+- Phase 1 and Phase 2 are built and tested (480 tests). `.\zypher.ps1 start` runs Telegram buttons,
   sending, inbox reading and follow-ups in one window. Guide: docs/how-to-use.md.
-- The database is empty (test data wiped). Real sending is configured in TEST MODE only (`SEND_ALLOWLIST` in `.env`).
-- **No real email has ever been sent to a real lead.** The live proof so far: preflight passes, a test email arrived with
-  SPF, DKIM and DMARC all PASS, a real reply and a real bounce were handled correctly.
+- **Step 1 (agent on the Oracle server) is in progress.** Plan: docs/plans/step1-server.md. Part 1 (first careful
+  live send) is DONE. Part 3 code is DONE and tested on Docker Desktop (2026-10-21): daily drafting schedule, one-copy
+  lock (checked live and on Supabase), heartbeat/watchdog/crash alert/Healthchecks ping, Dockerfile, compose, nightly
+  backup (backup + restore tested, counts matched), arm64 build. Code review and security review of the diff: not yet.
+  **Next: the server**, following docs/runbooks/server-setup.md. Before that the owner: rotates the keys (plan
+  Part 2 §1), creates the Oracle account (Pay As You Go + ₹100 budget alert), creates two Healthchecks.io checks,
+  optionally a Backblaze B2 bucket. Nothing is committed yet; the repo was 6 commits ahead of GitHub before this.
+- Real sending is ON with `SEND_ALLOWLIST` set to one address. **2 real leads emailed so far** (first emails only, no
+  replies or bounces yet). The second was the careful live send on 2026-10-21: approved, sent 16 s later inside the
+  Dubai window, filed in Sent, lead moved to `in_sequence`. Earlier proof: test email with SPF, DKIM and DMARC all PASS,
+  a real reply and a real bounce handled correctly.
+- 2026-10-21: the venv was reinstalled after the folder moved to `Desktop\AGENTS\` (it pointed at the old path).
+- 2026-10-21 fix: `mailto:` links are now URL-decoded. A site linked `mailto:%20name@...` and the stored address kept
+  the `%20`, which would have bounced. The one affected contact was corrected (event `contact_email_corrected`).
 - Free model (Groq gpt-oss-120b, fallback gpt-oss-20b): checks keep drafts safe, but wording quality is only decent.
 
 ## Owner decisions still open
@@ -18,9 +29,9 @@ Read this first in a new chat, then CLAUDE.md and docs/decisions.md. Written 202
 3. Whether to move cold email to a separate domain (the owner chose the main domain, against advice).
 
 ## Build next (suggested order)
-1. **First careful live send** (walkthrough was given): approve one card, `SEND_ALLOWLIST` to that address, watch it.
+1. **Run on the Oracle free server** (Step 1, docs/plans/step1-server.md): Part 3 build, then the server runbook.
 2. **Reply drafting** (Phase 3): classify, draft a reply that agrees first and proposes two time slots, human sends.
-3. **Run on a server** (a $5 VPS) so it works with the PC off.
+3. Owner decision: when to clear `SEND_ALLOWLIST` (go live at warmup pace, 5 a day).
 4. **Meetings booked** count (a `/booked` command or calendar link) so stats show real results.
 5. CRM or Notion handoff for warm leads, then LinkedIn and WhatsApp (human-assisted).
 6. Public-holiday calendar for send windows; a "lead score"; a model comparison (`scripts/eval_models.py`) on real leads.

@@ -2,6 +2,41 @@
 
 Format: what we decided, why, and the trade-off. Newest first.
 
+## 2026-10-21: The agent runs 24/7 in Docker on the Oracle free ARM server
+- **Decision:** one image (python:3.13-slim, non-root, editable install so `icp.yaml`/`assets/` resolve as on the laptop), run by Docker Compose with `restart: unless-stopped`, 50 MB of rotated logs, and a separate `backup` service. Telegram approvals are unchanged.
+- **Why:** Step 1 of START_HERE: no terminal on the laptop. The same compose file runs on Docker Desktop and the arm64 server, and later moves into the Console's `deploy/` folder unchanged.
+- **Trade-off:** a free server can be reclaimed; mitigated by Pay As You Go (owner), off-server monitoring and backups. Moving to a paid server is a copy plus `docker compose up`.
+
+## 2026-10-21: Daily drafting is a schedule inside `start`, not a scheduler container
+- **Decision:** `DRAFT_*` settings; `start` drafts once a day at or after the set local time on the set weekdays (owner chose 10 leads, Mon-Fri 08:00 IST on the server). The run is logged as a `scheduled_draft` event *before* drafting, so a restart never drafts twice and a missed day is never made up later. Lead finding (Apify) is deliberately not schedulable. Off by default (laptop).
+- **Why:** the loop already runs follow-ups every 30 minutes; a second container would need its own copy of the pipeline, lock and connections.
+- **Trade-off:** sending/inbox pauses while drafting (10-20 minutes on the free model). Harmless: sends are spaced minutes apart anyway. A crash mid-draft loses that day's remaining drafts by design (cheaper than a crash loop of model calls).
+
+## 2026-10-21: Only one copy of `start` runs, enforced by a Postgres advisory lock
+- **Decision:** `start` takes two session-level advisory locks ("poll" and "send", per tenant); `bot` takes "poll", `worker` takes "send". A copy that finds a lock taken waits (prints every minute, tells the owner once in Telegram) instead of exiting. Telegram's 409 "Conflict" is also detected and reported once.
+- **Why:** two copies (laptop and server) would split Telegram taps at random and both run the sender. A lock lives as long as its connection, so a dead copy frees it by itself; no table needed. Waiting (not exiting) avoids a server crash loop and lets the laptop take over automatically if the server dies.
+- **Trade-off:** needs a connection that keeps one server session: the Supabase **session** pooler (port 5432) works (tested); the transaction pooler (6543) would not. `send` (one pass) takes no lock; the worker's "never send twice" claim still protects it.
+
+## 2026-10-21: A watchdog inside the agent, not an "autoheal" container
+- **Decision:** each loop touches a heartbeat file; `zypher_agent health` is Docker's HEALTHCHECK; an in-process watchdog alerts and exits when the main loop is silent 45 minutes or Telegram 10, so Docker restarts it. Three starts in 30 minutes send one Telegram alert an hour, with the last error (secrets masked).
+- **Why:** plain Docker marks a container unhealthy but never restarts it. Autoheal containers need the Docker socket, which is root on the server.
+- **Trade-off:** a heartbeat means "not stuck", not "working" (a loop that fails every pass still beats); failures are visible in logs, and the off-server monitor catches a dead server.
+
+## 2026-10-21: Healthchecks.io for monitoring now; UptimeRobot later for the Console
+- **Decision:** the agent pings Healthchecks.io every 5 minutes after a pass that reached the database; the backup pings its own check. Silence alerts by email and Telegram (Healthchecks' own bot).
+- **Why:** the agent has no web address for a URL checker to visit. A "dead man's switch" also catches the whole server going down, which an alert from the agent itself never can.
+- **Trade-off:** one more account. UptimeRobot comes with the Console's public URL in Step 2 (its free-plan commercial terms changed recently; confirm at signup).
+
+## 2026-10-21: Nightly pg_dump of the public schema, 14 days, copied to Backblaze B2
+- **Decision:** `deploy/backup/` (postgres:17-alpine + rclone) dumps `public` at 02:30 IST, keeps 14 days locally and mirrors to a B2 bucket when configured. Restore tested into a throwaway database: all table counts matched.
+- **Why:** Supabase free has no backups. B2 is free up to 10 GB without a card and is a different company from Oracle, so losing the Oracle account keeps the backups.
+- **Trade-off:** `auth`/`storage` schemas are not backed up (we do not use them). The Console's `ops` schema is added in Step 2.
+
+## 2026-10-21: `mailto:` links are URL-decoded
+- **Decision:** addresses from `mailto:` links are decoded (`%20` is a space) before validation.
+- **Why:** a site linked `mailto:%20online@...`; the stored address kept `%20`, passed validation (`%` is legal) and would have bounced on the first careful live send. Caught before approval; the one affected contact was corrected and logged.
+- **Trade-off:** none.
+
 ## 2026-10-20: Test mode never fails silently
 - **Decision:** when `SEND_ALLOWLIST` is set, (1) tapping Approve on an address outside it is refused at once with the reason and how to fix it, instead of taking an approval that can never send; (2) an already-approved email held by test mode is shown in the terminal each pass and announced once in Telegram ("Approved but NOT sent"). Cards already said so after approval; that was too easy to miss.
 - **Why:** the owner approved a real company, saw "sent 0" in the terminal and could not tell why. A held email must be as visible as a sent one.
